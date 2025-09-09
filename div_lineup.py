@@ -5,6 +5,7 @@ import re
 import random
 from typing import Optional, Tuple, List
 from collections import Counter
+
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
 
 st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
@@ -20,7 +21,7 @@ SITE_MAP = {
 NFL_POSITION_HINTS = {"QB", "RB", "WR", "TE", "K", "DST"}
 NBA_POSITION_HINTS = {"PG", "SG", "SF", "PF", "C", "G", "F"}
 
-# --- Helper functions ------------------------------------------------------
+# --- helpers ---------------------------------------------------------------
 def normalize_colname(c: str) -> str:
     return re.sub(r'[^a-z0-9]', '', c.lower())
 
@@ -104,34 +105,34 @@ def player_display_name(p) -> str:
 
 # --- Diversify function ----------------------------------------------------
 def diversify_lineups_wide(df_wide, max_exposure=0.4, randomness=0.1):
-    """
-    Diversify lineups by limiting max player exposure and adding small randomness.
-    Works directly on df_wide (wide-format lineups).
-    """
     diversified = df_wide.copy()
     total_lineups = len(diversified)
-    players = []
 
+    # Flatten all player entries
+    players = []
     for col in diversified.columns:
         for val in diversified[col]:
-            if isinstance(val, str):
-                players.append(val.split("(")[0].strip())
+            if isinstance(val, str) and "(" in val:
+                name = val.split("(")[0].strip()
+                players.append(name)
 
+    # Count exposures
     exposure = Counter(players)
 
     for col in diversified.columns:
         for i, val in diversified[col].items():
-            if not isinstance(val, str):
+            if not isinstance(val, str) or "(" not in val:
                 continue
             name = val.split("(")[0].strip()
             player_exp = exposure[name] / total_lineups
             if player_exp > max_exposure and random.random() < randomness:
+                # Replace with random other player from same column
                 replacement = random.choice(diversified[col].tolist())
                 diversified.at[i, col] = replacement
 
     return diversified
 
-# --- UI --------------------------------------------------------------------
+# --- UI -------------------------------------------------------------------
 st.title("The Betting Block DFS Optimizer")
 st.write("Upload a salary CSV exported from DraftKings or FanDuel (NFL/NBA).")
 
@@ -234,14 +235,15 @@ optimizer.player_pool.load_players(players)
 
 # --- generate lineups ------------------------------------------------------
 num_lineups = st.slider("Number of lineups",1,50,5)
+max_exposure = st.slider("Max exposure per player",0.0,1.0,0.3)
 gen_btn = st.button("Generate lineups")
 
 if gen_btn:
     with st.spinner("Generating..."):
-        lineups = list(optimizer.optimize(n=num_lineups))
+        lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
     st.success(f"Generated {len(lineups)} lineup(s)")
 
-    # --- convert to wide format ----------------------------------------------
+    # Convert to wide format
     wide_rows = []
     position_order = ["QB","RB1","RB2","WR1","WR2","WR3","TE","FLEX","DST"]
     for lineup in lineups:
@@ -255,30 +257,34 @@ if gen_btn:
         row["ProjectedPoints"] = sum([safe_float(getattr(p,"fppg",0)) for p in lineup_players])
         wide_rows.append(row)
 
-    df_wide = pd.DataFrame(wide_rows)
+    st.session_state.df_wide = pd.DataFrame(wide_rows)
+    st.session_state.diversified_df = None  # reset
+
+# --- display / diversify ---------------------------------------------------
+if "df_wide" in st.session_state:
     st.markdown("### Lineups (wide)")
-    st.dataframe(df_wide)
+    st.dataframe(st.session_state.df_wide)
 
-    # --- Diversify sliders -----------------------------------------------
-    max_exposure_div = st.slider("Max exposure for diversification", 0.0, 1.0, 0.4)
-    randomness_div = st.slider("Randomness for diversification", 0.0, 1.0, 0.1)
+    # Diversify sliders
+    max_exposure_div = st.slider("Max exposure for diversification", 0.0, 1.0, 0.4, key="div_max_exposure")
+    randomness_div = st.slider("Randomness for diversification", 0.0, 1.0, 0.1, key="div_randomness")
 
-    # --- Diversify button -----------------------------------------------
-    if "diversified_df" not in st.session_state:
-        st.session_state.diversified_df = None
+    if st.button("Diversify Lineups"):
+        st.session_state.diversified_df = diversify_lineups_wide(
+            st.session_state.df_wide,
+            max_exposure=max_exposure_div,
+            randomness=randomness_div
+        )
 
-    if st.button("Diversify Lineups", key="diversify_button"):
-        st.session_state.diversified_df = diversify_lineups_wide(df_wide, max_exposure=max_exposure_div, randomness=randomness_div)
-
-    # --- Show diversified lineups ----------------------------------------
+    # Show diversified lineups if exist
     if st.session_state.diversified_df is not None:
         st.markdown("### Diversified Lineups")
         st.dataframe(st.session_state.diversified_df)
 
-    # --- Download buttons ------------------------------------------------
-    csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-    st.download_button("Download Original Lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv", key="download_orig")
+    # Download buttons
+    csv_bytes = st.session_state.df_wide.to_csv(index=False).encode("utf-8")
+    st.download_button("Download Original Lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
 
     if st.session_state.diversified_df is not None:
         csv_bytes_div = st.session_state.diversified_df.to_csv(index=False).encode("utf-8")
-        st.download_button("Download Diversified Lineups CSV", csv_bytes_div, file_name="lineups_diversified.csv", mime="text/csv", key="download_div")
+        st.download_button("Download Diversified Lineups CSV", csv_bytes_div, file_name="lineups_diversified.csv", mime="text/csv")
