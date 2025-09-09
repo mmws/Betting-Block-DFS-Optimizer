@@ -230,6 +230,23 @@ if gen_btn:
     df_wide = pd.DataFrame(wide_rows)
     st.markdown("### Lineups (wide)")
     st.dataframe(df_wide)
-
+    
+    # 🔹 Diversify option
+    if st.button("Diversify Lineups"):
+        diversified = diversify_lineups(df_long, max_exposure=0.4, randomness=0.1)
+    
+        st.markdown("### Diversified Lineups")
+        st.dataframe(diversified)
+    
+        # Export diversified CSV
+        csv_bytes_div = diversified.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download diversified lineups as CSV",
+            csv_bytes_div,
+            file_name="lineups_diversified.csv",
+            mime="text/csv"
+        )
+    
+    # 🔹 Normal export
     csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
     st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
