@@ -20,7 +20,7 @@ SITE_MAP = {
 NFL_POSITION_HINTS = {"QB", "RB", "WR", "TE", "K", "DST"}
 NBA_POSITION_HINTS = {"PG", "SG", "SF", "PF", "C", "G", "F"}
 
-# --- helpers ---------------------------------------------------------------
+# --- Helper functions ------------------------------------------------------
 def normalize_colname(c: str) -> str:
     return re.sub(r'[^a-z0-9]', '', c.lower())
 
@@ -102,29 +102,26 @@ def player_display_name(p) -> str:
     if full: return full
     return str(p)
 
-# --- Diversify helper ------------------------------------------------------
-def diversify_lineups_wide(df_wide, players_list, max_exposure=0.4, randomness=0.1):
+# --- Diversify function ----------------------------------------------------
+def diversify_lineups_wide(df_wide, max_exposure=0.4, randomness=0.1):
+    """
+    Diversify lineups by limiting max player exposure and adding small randomness.
+    Works directly on df_wide (wide-format lineups).
+    """
     diversified = df_wide.copy()
     total_lineups = len(diversified)
-
-    # Identify player columns
-    player_cols = [c for c in diversified.columns if c not in ["TotalSalary", "ProjectedPoints"]]
-
-    # Flatten all player names
     players = []
-    for col in player_cols:
-        for val in diversified[col]:
-            if isinstance(val, str) and "(" in val:
-                name = val.split("(")[0].strip()
-                players.append(name)
 
-    # Count exposures
+    for col in diversified.columns:
+        for val in diversified[col]:
+            if isinstance(val, str):
+                players.append(val.split("(")[0].strip())
+
     exposure = Counter(players)
 
-    # Apply diversification
-    for col in player_cols:
+    for col in diversified.columns:
         for i, val in diversified[col].items():
-            if not isinstance(val, str) or "(" not in val:
+            if not isinstance(val, str):
                 continue
             name = val.split("(")[0].strip()
             player_exp = exposure[name] / total_lineups
@@ -132,24 +129,9 @@ def diversify_lineups_wide(df_wide, players_list, max_exposure=0.4, randomness=0
                 replacement = random.choice(diversified[col].tolist())
                 diversified.at[i, col] = replacement
 
-    # Recalculate totals
-    for i, row in diversified.iterrows():
-        total_salary = 0
-        total_points = 0
-        for col in player_cols:
-            val = row[col]
-            if isinstance(val, str) and "(" in val:
-                pid = val.split("(")[-1].replace(")","").strip()
-                player = next((p for p in players_list if getattr(p,"id","")==pid), None)
-                if player:
-                    total_salary += getattr(player,"salary",0)
-                    total_points += safe_float(getattr(player,"fppg",0))
-        diversified.at[i,"TotalSalary"] = total_salary
-        diversified.at[i,"ProjectedPoints"] = total_points
-
     return diversified
 
-# --- UI -------------------------------------------------------------------
+# --- UI --------------------------------------------------------------------
 st.title("The Betting Block DFS Optimizer")
 st.write("Upload a salary CSV exported from DraftKings or FanDuel (NFL/NBA).")
 
@@ -252,18 +234,14 @@ optimizer.player_pool.load_players(players)
 
 # --- generate lineups ------------------------------------------------------
 num_lineups = st.slider("Number of lineups",1,50,5)
-max_exposure = st.slider("Max exposure per player",0.0,1.0,0.3)
 gen_btn = st.button("Generate lineups")
 
 if gen_btn:
     with st.spinner("Generating..."):
-        lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
-    st.session_state["lineups"] = lineups
+        lineups = list(optimizer.optimize(n=num_lineups))
     st.success(f"Generated {len(lineups)} lineup(s)")
 
-if "lineups" in st.session_state:
-    # --- convert to wide format ------------------------------------------------
-    lineups = st.session_state["lineups"]
+    # --- convert to wide format ----------------------------------------------
     wide_rows = []
     position_order = ["QB","RB1","RB2","WR1","WR2","WR3","TE","FLEX","DST"]
     for lineup in lineups:
@@ -281,12 +259,26 @@ if "lineups" in st.session_state:
     st.markdown("### Lineups (wide)")
     st.dataframe(df_wide)
 
-    # --- Diversify button ---------------------------------------------------
-    if st.button("Diversify lineups"):
-        diversified = diversify_lineups_wide(df_wide, players_list=players, max_exposure=max_exposure)
-        df_wide = diversified
-        st.markdown("### Diversified Lineups")
-        st.dataframe(df_wide)
+    # --- Diversify sliders -----------------------------------------------
+    max_exposure_div = st.slider("Max exposure for diversification", 0.0, 1.0, 0.4)
+    randomness_div = st.slider("Randomness for diversification", 0.0, 1.0, 0.1)
 
+    # --- Diversify button -----------------------------------------------
+    if "diversified_df" not in st.session_state:
+        st.session_state.diversified_df = None
+
+    if st.button("Diversify Lineups", key="diversify_button"):
+        st.session_state.diversified_df = diversify_lineups_wide(df_wide, max_exposure=max_exposure_div, randomness=randomness_div)
+
+    # --- Show diversified lineups ----------------------------------------
+    if st.session_state.diversified_df is not None:
+        st.markdown("### Diversified Lineups")
+        st.dataframe(st.session_state.diversified_df)
+
+    # --- Download buttons ------------------------------------------------
     csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-    st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+    st.download_button("Download Original Lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv", key="download_orig")
+
+    if st.session_state.diversified_df is not None:
+        csv_bytes_div = st.session_state.diversified_df.to_csv(index=False).encode("utf-8")
+        st.download_button("Download Diversified Lineups CSV", csv_bytes_div, file_name="lineups_diversified.csv", mime="text/csv", key="download_div")
