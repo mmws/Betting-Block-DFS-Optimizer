@@ -172,14 +172,15 @@ st.write(f"Loaded {len(players)} players (skipped {skipped})")
 if len(players)==0: st.error("No valid players!"); st.stop()
 optimizer.player_pool.load_players(players)
 # --- generate lineups ------------------------------------------------------
-num_lineups = st.slider("Number of lineups",1,150,5)
-max_exposure = st.slider("Max exposure per player",0.0,1.0,0.3)
+num_lineups = st.slider("Number of lineups", 1, 150, 5)
+max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
 min_salary = st.number_input("Minimum total salary", value=49500, min_value=0, max_value=50000)
 max_salary = st.number_input("Maximum total salary", value=50000, min_value=0, max_value=50000)
+max_player_pairs = st.slider("Max times any two players appear together", 1, num_lineups, min(5, num_lineups))
 gen_btn = st.button("Generate lineups")
 if gen_btn:
     with st.spinner("Generating..."):
-        lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
+        lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure, max_repeating_players=max_player_pairs))
         # Filter lineups by salary range
         filtered_lineups = [
             lineup for lineup in lineups
