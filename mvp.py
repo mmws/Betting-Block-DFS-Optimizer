@@ -3,28 +3,27 @@ import pandas as pd
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
 from itertools import combinations
 
-st.set_page_config(page_title="DFS Optimizer", layout="wide")
+st.set_page_config(page_title="DFS Optimizer")
 
 # --- helpers ---------------------------------------------------------------
-def parse_salary(s) -> float:
+def parse_salary(s):
     try:
         return float(str(s).replace('$', '').replace(',', '').strip())
     except:
         return None
 
-def safe_float(x) -> float:
+def safe_float(x):
     try:
         return float(x) if not pd.isna(x) else 0.0
     except:
         return 0.0
 
-def player_display_name(p) -> str:
+def player_display_name(p):
     return f"{p.first_name} {p.last_name} ({p.id})".strip()
 
 # --- UI -------------------------------------------------------------------
 st.title("DFS Optimizer")
-st.write("Upload a DraftKings NFL salary CSV with columns: Name, Position, Salary, Team, avgpointspergame")
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+uploaded_file = st.file_uploader("Upload DraftKings NFL CSV (Name, Position, Salary, Team, avgpointspergame)", type=["csv"])
 if not uploaded_file:
     st.stop()
 
@@ -36,9 +35,10 @@ except Exception as e:
 
 # --- build players --------------------------------------------------------
 players = []
+skipped = 0
 for _, row in df.iterrows():
     try:
-        player_id = str(row.get("ID", row.get("Name", "r" + str(_))))
+        player_id = str(row.get("Name", "r" + str(_)))
         name = str(row.get("Name", "Unknown")).split(" ", 1)
         first_name = name[0]
         last_name = name[1] if len(name) > 1 else ""
@@ -46,14 +46,17 @@ for _, row in df.iterrows():
         team = str(row.get("Team", ""))
         salary = parse_salary(row.get("Salary"))
         fppg = safe_float(row.get("avgpointspergame"))
-        if salary is None:
+        if salary is None or not positions or positions == [""]:
+            skipped += 1
             continue
         players.append(Player(player_id, first_name, last_name, positions, team, salary, fppg))
     except:
+        skipped += 1
         continue
 
+st.write(f"Loaded {len(players)} players (skipped {skipped})")
 if not players:
-    st.error("No valid players in CSV!")
+    st.error("No valid players!")
     st.stop()
 
 optimizer = get_optimizer(Site.DRAFTKINGS, Sport.FOOTBALL)
@@ -62,30 +65,26 @@ optimizer.player_pool.load_players(players)
 # --- generate lineups ------------------------------------------------------
 num_lineups = st.slider("Number of lineups", 1, 150, 50)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-min_salary = st.number_input("Min total salary", value=49000, min_value=0, max_value=50000)
-max_salary = st.number_input("Max total salary", value=50000, min_value=0, max_value=50000)
-max_player_pairs = st.slider("Max times any two players appear together", 1, num_lineups, min(15, num_lineups))
+min_salary = st.number_input("Min salary", value=49000, min_value=0, max_value=50000)
+max_salary = st.number_input("Max salary", value=50000, min_value=0, max_value=50000)
+max_player_pairs = st.slider("Max player pair appearances", 1, num_lineups, min(15, num_lineups))
 
-if st.button("Generate lineups"):
+if st.button("Generate"):
     with st.spinner("Generating..."):
         try:
-            # Generate more lineups initially
-            generate_n = min(num_lineups * 5, 1500)
-            lineups = list(optimizer.optimize(n=generate_n, max_exposure=max_exposure))
+            lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
+            st.write(f"Initially generated {len(lineups)} lineups")
             
             # Filter by salary range
-            salary_filtered = [
-                lineup for lineup in lineups
-                if min_salary <= sum(p.salary for p in lineup.players) <= max_salary
-            ]
+            salary_filtered = [lineup for lineup in lineups if min_salary <= sum(p.salary for p in lineup.players) <= max_salary]
+            st.write(f"{len(salary_filtered)} lineups after salary filter ({min_salary}-{max_salary})")
             
             # Filter by max player pairs
             filtered_lineups = salary_filtered
             if max_player_pairs < num_lineups:
                 pair_counts = {}
                 selected_lineups = []
-                sorted_lineups = sorted(salary_filtered, key=lambda x: sum(p.fppg for p in x.players), reverse=True)
-                for lineup in sorted_lineups:
+                for lineup in sorted(salary_filtered, key=lambda x: sum(p.fppg for p in x.players), reverse=True):
                     players = lineup.players
                     pairs = list(combinations([p.id for p in players], 2))
                     temp_counts = pair_counts.copy()
@@ -97,6 +96,7 @@ if st.button("Generate lineups"):
                     if len(selected_lineups) >= num_lineups:
                         break
                 filtered_lineups = selected_lineups[:num_lineups]
+            st.write(f"{len(filtered_lineups)} lineups after pair filter (max {max_player_pairs})")
         except Exception as e:
             st.error(f"Error generating lineups: {e}")
             st.stop()
@@ -112,51 +112,41 @@ if st.button("Generate lineups"):
         lineup_players = lineup.players
         row = {}
         assigned_players = []
-        qb_players = [p for p in lineup_players if "QB" in p.positions]
-        rb_players = [p for p in lineup_players if "RB" in p.positions]
-        wr_players = [p for p in lineup_players if "WR" in p.positions]
-        te_players = [p for p in lineup_players if "TE" in p.positions]
-        dst_players = [p for p in lineup_players if "DST" in p.positions]
-        flex_players = [p for p in lineup_players if any(pos in p.positions for pos in ["RB", "WR", "TE"])]
+        qb = [p for p in lineup_players if "QB" in p.positions]
+        rb = [p for p in lineup_players if "RB" in p.positions]
+        wr = [p for p in lineup_players if "WR" in p.positions]
+        te = [p for p in lineup_players if "TE" in p.positions]
+        dst = [p for p in lineup_players if "DST" in p.positions]
+        flex = [p for p in lineup_players if any(pos in p.positions for pos in ["RB", "WR", "TE"])]
 
-        if qb_players:
-            row["QB"] = player_display_name(qb_players[0])
-            assigned_players.append(qb_players[0])
-        if len(rb_players) >= 2:
-            row["RB"] = player_display_name(rb_players[0])
-            row["RB_1"] = player_display_name(rb_players[1])
-            assigned_players.extend(rb_players[:2])
-        if len(wr_players) >= 3:
-            row["WR"] = player_display_name(wr_players[0])
-            row["WR_1"] = player_display_name(wr_players[1])
-            row["WR_2"] = player_display_name(wr_players[2])
-            assigned_players.extend(wr_players[:3])
-        if te_players:
-            row["TE"] = player_display_name(te_players[0])
-            assigned_players.append(te_players[0])
-        if flex_players:
-            for p in flex_players:
+        if len(qb) >= 1 and len(rb) >= 2 and len(wr) >= 3 and len(te) >= 1 and len(dst) >= 1 and len(flex) >= 1:
+            row["QB"] = player_display_name(qb[0])
+            assigned_players.append(qb[0])
+            row["RB"] = player_display_name(rb[0])
+            row["RB_1"] = player_display_name(rb[1])
+            assigned_players.extend(rb[:2])
+            row["WR"] = player_display_name(wr[0])
+            row["WR_1"] = player_display_name(wr[1])
+            row["WR_2"] = player_display_name(wr[2])
+            assigned_players.extend(wr[:3])
+            row["TE"] = player_display_name(te[0])
+            assigned_players.append(te[0])
+            for p in flex:
                 if p not in assigned_players:
                     row["FLEX"] = player_display_name(p)
                     assigned_players.append(p)
                     break
-        if dst_players:
-            row["DST"] = player_display_name(dst_players[0])
-            assigned_players.append(dst_players[0])
-
-        if len(row) != len(position_order):
-            continue
-
-        row["TotalSalary"] = sum(p.salary for p in lineup_players)
-        row["ProjectedPoints"] = sum(p.fppg for p in lineup_players)
-        wide_rows.append(row)
+            row["DST"] = player_display_name(dst[0])
+            row["TotalSalary"] = sum(p.salary for p in lineup_players)
+            row["ProjectedPoints"] = sum(p.fppg for p in lineup_players)
+            wide_rows.append(row)
 
     if not wide_rows:
-        st.error("No lineups match the constraints! Try widening salary range or increasing max player pairs.")
+        st.error("No lineups match constraints! Check CSV data or relax salary/pair limits.")
         st.stop()
 
     df_wide = pd.DataFrame(wide_rows, columns=position_order + ["TotalSalary", "ProjectedPoints"])
     st.markdown("### Lineups")
     st.dataframe(df_wide)
     csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-    st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+    st.download_button("Download CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
