@@ -203,7 +203,7 @@ if len(players)==0: st.error("No valid players!"); st.stop()
 optimizer.player_pool.load_players(players)
 
 # --- lineup settings ---
-num_lineups = st.slider("Number of lineups", 1, 50, 5)
+num_lineups = st.slider("Number of lineups", 1, 200, 5)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
 max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
 optimizer.set_max_repeating_players(max_repeating_players)
@@ -264,3 +264,4 @@ if gen_btn:
 
         csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
         st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+
