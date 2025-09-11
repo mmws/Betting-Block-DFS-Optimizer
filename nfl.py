@@ -215,7 +215,7 @@ if gen_btn:
 
     # --- convert to wide format ------------------------------------------------
     wide_rows = []
-    position_order = ["QB","RB1","RB2","WR1","WR2","WR3","TE","FLEX","DST"]
+    position_order = ["QB","RB","RB","WR","WR","WR","TE","FLEX","DST"]
     for lineup in lineups:
         lineup_players = getattr(lineup,"players",None) or getattr(lineup,"_players",None) or list(lineup)
         row = {}
