@@ -36,14 +36,18 @@ def find_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
     return None
 
 def guess_site_from_filename(name: Optional[str]) -> Optional[str]:
-    if not name: return None
+    if not name:
+        return None
     n = name.lower()
-    if "draftkings" in n or re.search(r'\bdk\b', n): return "DraftKings"
-    if "fanduel" in n or re.search(r'\bfd\b', n): return "FanDuel"
+    if "draftkings" in n or re.search(r'\bdk\b', n):
+        return "DraftKings"
+    if "fanduel" in n or re.search(r'\bfd\b', n):
+        return "FanDuel"
     return None
 
 def guess_sport_from_positions(series: pd.Series) -> Optional[str]:
-    if series is None: return None
+    if series is None:
+        return None
     try:
         all_pos = (
             series.dropna()
@@ -55,24 +59,30 @@ def guess_sport_from_positions(series: pd.Series) -> Optional[str]:
                   .unique()
         )
         posset = set([str(p).strip() for p in all_pos if p])
-        if posset & NFL_POSITION_HINTS: return "NFL"
-        if posset & NBA_POSITION_HINTS: return "NBA"
+        if posset & NFL_POSITION_HINTS:
+            return "NFL"
+        if posset & NBA_POSITION_HINTS:
+            return "NBA"
     except Exception:
         pass
     return None
 
 def parse_name_and_id_from_field(val: str) -> Tuple[str, Optional[str]]:
     s = str(val).strip()
-    for pattern in [r'^(.*?)\s*\((\d+)\)\s*$', r'^(.*?)\s*[-\|\/]\s*(\d+)\s*$', r'^(.*\D)\s+(\d+)\s*$']:
-        m = re.match(pattern, s)
-        if m: return m.group(1).strip(), m.group(2)
+    m = re.match(r'^(.*?)\s*\((\d+)\)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
+    m = re.match(r'^(.*?)\s*[-\|\/]\s*(\d+)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
+    m = re.match(r'^(.*\D)\s+(\d+)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
     return s, None
 
 def parse_salary(s) -> Optional[float]:
     if pd.isna(s): return None
     try:
         t = str(s).replace('$','').replace(',','').strip()
-        return float(t) if t else None
+        if t == '': return None
+        return float(t)
     except: return None
 
 def safe_float(x) -> Optional[float]:
@@ -122,6 +132,7 @@ team_col = find_column(df, ["team","teamabbrev","team_abbrev","teamabbr"])
 fppg_col = find_column(df, ["avgpointspergame","avgpoints","fppg","projectedpoints","proj"])
 
 guessed_sport = guess_sport_from_positions(df[pos_col]) if pos_col else None
+
 auto_choice = f"{detected_site} {guessed_sport}" if detected_site and guessed_sport and f"{detected_site} {guessed_sport}" in SITE_MAP else None
 
 st.markdown("### Auto-detect diagnostics")
@@ -202,50 +213,23 @@ if gen_btn:
         lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
     st.success(f"Generated {len(lineups)} lineup(s)")
 
-    # --- convert to wide format with correct headers ------------------------
+    # --- convert to wide format ------------------------------------------------
     wide_rows = []
-    export_columns = ["QB","RB","RB","WR","WR","WR","TE","FLEX","DST","TotalSalary","ProjectedPoints"]
-
+    position_order = ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]
     for lineup in lineups:
         lineup_players = getattr(lineup,"players",None) or getattr(lineup,"_players",None) or list(lineup)
-        row = dict.fromkeys(export_columns, "")
-
-        # track filled slots
-        rb_idx = 0
-        wr_idx = 0
-
-        for p in lineup_players:
-            pos_list = [str(x).upper() for x in (getattr(p,"positions",[]) or [])]
-            pname = f"{player_display_name(p)}({getattr(p,'id','')})"
-
-            if "QB" in pos_list and not row["QB"]:
-                row["QB"] = pname
-            elif "RB" in pos_list and rb_idx < 2:
-                # assign to first empty RB slot
-                rb_positions = [i for i,col in enumerate(export_columns) if col=="RB"]
-                row[export_columns[rb_positions[rb_idx]]] = pname
-                rb_idx += 1
-            elif "WR" in pos_list and wr_idx < 3:
-                wr_positions = [i for i,col in enumerate(export_columns) if col=="WR"]
-                row[export_columns[wr_positions[wr_idx]]] = pname
-                wr_idx += 1
-            elif "TE" in pos_list and not row["TE"]:
-                row["TE"] = pname
-            elif "DST" in pos_list and not row["DST"]:
-                row["DST"] = pname
-            else:
-                if not row["FLEX"]:
-                    row["FLEX"] = pname
-
-        # totals
+        row = {}
+        for i,pos in enumerate(position_order):
+            if i<len(lineup_players):
+                p = lineup_players[i]
+                row[pos] = f"{player_display_name(p)}({getattr(p,'id','')})"
         row["TotalSalary"] = sum([getattr(p,"salary",0) for p in lineup_players])
         row["ProjectedPoints"] = sum([safe_float(getattr(p,"fppg",0)) for p in lineup_players])
         wide_rows.append(row)
 
-    df_wide = pd.DataFrame(wide_rows, columns=export_columns)
+    df_wide = pd.DataFrame(wide_rows)
     st.markdown("### Lineups (wide)")
     st.dataframe(df_wide)
 
-    # --- download button ---------------------------------------------------
     csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
     st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
