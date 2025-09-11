@@ -1,22 +1,25 @@
-# app_diverse.py
+# app.py
 import streamlit as st
 import pandas as pd
 import re
 from typing import Optional, Tuple, List
-from itertools import combinations, chain
+
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
 
-st.set_page_config(page_title="DFS Optimizer with Diversification", layout="wide")
+st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
 
-# --- Config / mappings ---
+# --- Config / mappings -----------------------------------------------------
 SITE_MAP = {
     "DraftKings NFL": (Site.DRAFTKINGS, Sport.FOOTBALL),
     "FanDuel NFL": (Site.FANDUEL, Sport.FOOTBALL),
+    "DraftKings NBA": (Site.DRAFTKINGS, Sport.BASKETBALL),
+    "FanDuel NBA": (Site.FANDUEL, Sport.BASKETBALL),
 }
 
 NFL_POSITION_HINTS = {"QB", "RB", "WR", "TE", "K", "DST"}
+NBA_POSITION_HINTS = {"PG", "SG", "SF", "PF", "C", "G", "F"}
 
-# --- Helpers ---
+# --- helpers ---------------------------------------------------------------
 def normalize_colname(c: str) -> str:
     return re.sub(r'[^a-z0-9]', '', c.lower())
 
@@ -28,9 +31,51 @@ def find_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
             return norm_map[n]
     for col in df.columns:
         for cand in candidates:
-            if cand.lower().replace(' ','') in col.lower().replace(' ',''):
+            if cand.lower().replace(' ', '') in col.lower().replace(' ', ''):
                 return col
     return None
+
+def guess_site_from_filename(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return None
+    n = name.lower()
+    if "draftkings" in n or re.search(r'\bdk\b', n):
+        return "DraftKings"
+    if "fanduel" in n or re.search(r'\bfd\b', n):
+        return "FanDuel"
+    return None
+
+def guess_sport_from_positions(series: pd.Series) -> Optional[str]:
+    if series is None:
+        return None
+    try:
+        all_pos = (
+            series.dropna()
+                  .astype(str)
+                  .str.replace(' ', '')
+                  .str.upper()
+                  .str.split('/|,')
+                  .explode()
+                  .unique()
+        )
+        posset = set([str(p).strip() for p in all_pos if p])
+        if posset & NFL_POSITION_HINTS:
+            return "NFL"
+        if posset & NBA_POSITION_HINTS:
+            return "NBA"
+    except Exception:
+        pass
+    return None
+
+def parse_name_and_id_from_field(val: str) -> Tuple[str, Optional[str]]:
+    s = str(val).strip()
+    m = re.match(r'^(.*?)\s*\((\d+)\)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
+    m = re.match(r'^(.*?)\s*[-\|\/]\s*(\d+)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
+    m = re.match(r'^(.*\D)\s+(\d+)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
+    return s, None
 
 def parse_salary(s) -> Optional[float]:
     if pd.isna(s): return None
@@ -56,82 +101,163 @@ def player_display_name(p) -> str:
     if full: return full
     return str(p)
 
-# --- UI ---
-st.title("DFS Optimizer with Diversification")
-st.write("Upload a DraftKings or FanDuel NFL salary CSV.")
+# --- UI -------------------------------------------------------------------
+st.title("The Betting Block DFS Optimizer")
+st.write("Upload a salary CSV exported from DraftKings or FanDuel (NFL/NBA).")
 
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+uploaded_file = st.file_uploader("Upload salary CSV", type=["csv"])
 if not uploaded_file:
+    st.info("Upload a CSV (e.g. `DKSalaries.csv`). The app will try to auto-detect site & sport.")
     st.stop()
 
-df = pd.read_csv(uploaded_file)
+try:
+    df = pd.read_csv(uploaded_file)
+except Exception as e:
+    st.error(f"Could not read CSV: {e}")
+    st.stop()
+
+st.markdown("**Preview (first 10 rows):**")
 st.dataframe(df.head(10))
 
-# --- Detect columns ---
+# --- detect columns & site/sport ------------------------------------------
+detected_site = guess_site_from_filename(getattr(uploaded_file, "name", None))
+id_col = find_column(df, ["id","playerid","player_id","ID"])
+name_plus_id_col = find_column(df, ["name + id","name+id","name_plus_id","name_id","nameandid"])
 name_col = find_column(df, ["name","full_name","player"])
-pos_col = find_column(df, ["position","pos"])
-salary_col = find_column(df, ["salary"])
-fppg_col = find_column(df, ["fppg","proj","projectedpoints"])
+first_col = find_column(df, ["first_name","firstname","first"])
+last_col = find_column(df, ["last_name","lastname","last"])
+pos_col = find_column(df, ["position","positions","pos","roster position","rosterposition","roster_pos"])
+salary_col = find_column(df, ["salary","salary_usd"])
+team_col = find_column(df, ["team","teamabbrev","team_abbrev","teamabbr"])
+fppg_col = find_column(df, ["avgpointspergame","avgpoints","fppg","projectedpoints","proj"])
 
-# --- Load players ---
-players = []
-for idx,row in df.iterrows():
-    name = str(row[name_col]).strip() if name_col else f"Player{idx}"
-    pos = [p.strip() for p in re.split(r'[\/\|,]', str(row[pos_col]))] if pos_col else []
-    salary = parse_salary(row[salary_col]) if salary_col else None
-    fppg = safe_float(row[fppg_col]) if fppg_col else 0.0
-    if salary is None:
-        continue
-    players.append(Player(f"r{idx}", name.split(" ")[0], " ".join(name.split(" ")[1:]), pos, None, salary, fppg))
+guessed_sport = guess_sport_from_positions(df[pos_col]) if pos_col else None
+auto_choice = f"{detected_site} {guessed_sport}" if detected_site and guessed_sport and f"{detected_site} {guessed_sport}" in SITE_MAP else None
 
-st.write(f"Loaded {len(players)} players")
-if not players:
-    st.error("No valid players")
-    st.stop()
+st.markdown("### Auto-detect diagnostics")
+st.write({
+    "filename": getattr(uploaded_file, "name", None),
+    "detected_site": detected_site,
+    "pos_column": pos_col,
+    "guessed_sport": guessed_sport,
+    "name_column": name_col or name_plus_id_col,
+    "id_column": id_col,
+})
 
-# --- Optimizer ---
-site, sport = Site.DRAFTKINGS, Sport.FOOTBALL
+site_choice = None
+if auto_choice:
+    st.success(f"Auto-detected: **{auto_choice}**")
+    site_choice = st.selectbox("Site/sport", list(SITE_MAP.keys()), index=list(SITE_MAP.keys()).index(auto_choice))
+else:
+    st.warning("Could not auto-detect site+sport. Please choose manually.")
+    site_choice = st.selectbox("Site/sport", list(SITE_MAP.keys()))
+
+site, sport = SITE_MAP[site_choice]
 optimizer = get_optimizer(site, sport)
+
+# --- build players --------------------------------------------------------
+players = []
+skipped = 0
+for idx, row in df.iterrows():
+    try:
+        player_id = str(row[id_col]).strip() if id_col and not pd.isna(row[id_col]) else None
+        if not player_id and name_plus_id_col:
+            _, player_id = parse_name_and_id_from_field(row[name_plus_id_col])
+        if not player_id: player_id = f"r{idx}"
+
+        if first_col and last_col:
+            first_name = str(row[first_col]).strip()
+            last_name = str(row[last_col]).strip()
+        elif name_col:
+            parts = str(row[name_col]).split(" ",1)
+            first_name = parts[0].strip()
+            last_name = parts[1].strip() if len(parts)>1 else ""
+        elif name_plus_id_col:
+            parsed_name,_ = parse_name_and_id_from_field(row[name_plus_id_col])
+            parts = parsed_name.split(" ",1)
+            first_name = parts[0].strip()
+            last_name = parts[1].strip() if len(parts)>1 else ""
+        else:
+            first_name = str(row.get(name_col, f"Player{idx}"))
+            last_name = ""
+
+        raw_pos = str(row[pos_col]).strip() if pos_col and not pd.isna(row[pos_col]) else None
+        positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
+
+        team = str(row[team_col]).strip() if team_col and not pd.isna(row[team_col]) else None
+        salary = parse_salary(row[salary_col]) if salary_col else None
+        fppg = safe_float(row[fppg_col]) if fppg_col else None
+
+        if salary is None:
+            skipped += 1
+            continue
+
+        players.append(Player(player_id, first_name, last_name, positions or None, team, salary, fppg or 0.0))
+    except:
+        skipped += 1
+        continue
+
+st.write(f"Loaded {len(players)} players (skipped {skipped})")
+if len(players)==0: st.error("No valid players!"); st.stop()
+
 optimizer.player_pool.load_players(players)
 
-num_lineups = st.slider("Number of lineups",1,50,5)
-max_repeating = st.slider("Max repeating players across lineups",1, num_lineups, 2)
+# --- generate lineups ------------------------------------------------------
+num_lineups = st.slider("Number of lineups", 1, 50, 5)
+max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
+max_repeating_players = st.slider("Max repeating players between lineups", 0, 9, 3)
 gen_btn = st.button("Generate lineups")
 
 if gen_btn:
-    st.info("Generating lineups...")
-    candidate_lineups = list(optimizer.optimize(n=num_lineups*5))  # generate extra to diversify
-    
-    # --- Apply max repeating players constraint ---
-    final_lineups = []
-    player_counts = {}
-    for lineup in candidate_lineups:
-        lineup_players = list(lineup)
-        exceed = False
-        for p in lineup_players:
-            if player_counts.get(p.id,0) >= max_repeating:
-                exceed = True
-                break
-        if not exceed:
-            final_lineups.append(lineup_players)
-            for p in lineup_players:
-                player_counts[p.id] = player_counts.get(p.id,0)+1
-        if len(final_lineups) >= num_lineups:
-            break
+    with st.spinner("Generating..."):
+        try:
+            # generate extra candidates to allow filtering
+            candidate_lineups = list(optimizer.optimize(n=num_lineups*5, max_exposure=max_exposure))
+            accepted_lineups = []
 
-    # --- Prepare CSV ---
-    headers = ["QB","RB","RB","WR","WR","WR","TE","FLEX","DST","TotalSalary","ProjectedPoints"]
-    csv_rows = []
-    for lineup in final_lineups:
-        row = {h:"" for h in headers}
-        for i, p in enumerate(lineup):
-            if i<len(headers)-2:
-                row[headers[i]] = f"{player_display_name(p)}({p.id})"
-        row["TotalSalary"] = sum([p.salary for p in lineup])
-        row["ProjectedPoints"] = sum([safe_float(p.fppg) for p in lineup])
-        csv_rows.append(row)
+            # filter by max repeating players
+            for lineup in candidate_lineups:
+                lineup_players = getattr(lineup,"players",None) or getattr(lineup,"_players",None) or list(lineup)
+                is_valid = True
+                for accepted in accepted_lineups:
+                    accepted_players = getattr(accepted,"players",None) or getattr(accepted,"_players",None) or list(accepted)
+                    overlap = len(set(p.id for p in lineup_players) & set(p.id for p in accepted_players))
+                    if overlap > max_repeating_players:
+                        is_valid = False
+                        break
+                if is_valid:
+                    accepted_lineups.append(lineup)
+                if len(accepted_lineups) >= num_lineups:
+                    break
 
-    df_wide = pd.DataFrame(csv_rows)
-    st.dataframe(df_wide)
-    csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-    st.download_button("Download Lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+            lineups = accepted_lineups
+            st.success(f"Generated {len(lineups)} lineup(s)")
+
+            # --- convert to wide format -----------------------------------------
+            wide_rows = []
+            position_order = ["QB","RB","RB","WR","WR","WR","TE","FLEX","DST"]
+            for lineup in lineups:
+                lineup_players = getattr(lineup,"players",None) or getattr(lineup,"_players",None) or list(lineup)
+                row = {pos: "" for pos in position_order}
+
+                pos_counts = {p: 0 for p in position_order}
+                for p in lineup_players:
+                    for pos in p.positions:
+                        # find next available slot
+                        for i, target_pos in enumerate(position_order):
+                            if target_pos.startswith(pos) and row[target_pos]=="":
+                                row[target_pos] = f"{player_display_name(p)}({p.id})"
+                                break
+
+                row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup_players)
+                row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup_players)
+                wide_rows.append(row)
+
+            df_wide = pd.DataFrame(wide_rows)
+            st.markdown("### Lineups (wide)")
+            st.dataframe(df_wide)
+
+            csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
+            st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+        except Exception as e:
+            st.error(f"Error generating lineups: {e}")
