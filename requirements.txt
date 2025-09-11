@@ -1,3 +1,5 @@
-pip install --upgrade pip
-pandas streamlit pydfs-lineup-optimizer
+streamlit
+pandas
+pydfs-lineup-optimizer
+
 
