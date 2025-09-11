@@ -1,79 +1,106 @@
+# app_captain.py
 import streamlit as st
 import pandas as pd
-import tempfile
-from pydfs_lineup_optimizer import Site, Sport, get_optimizer, AfterEachExposureStrategy
+import re
+from pydfs_lineup_optimizer import (
+    get_optimizer, Site, Sport, Player, AfterEachExposureStrategy
+)
 from pydfs_lineup_optimizer.stacks import PositionsStack
 
-st.title("DraftKings CAPTAIN Mode Lineup Optimizer 🏈")
+# --- Streamlit config ---
+st.set_page_config(page_title="DFS CAPTAIN Mode Optimizer", layout="wide")
+st.title("DFS CAPTAIN Mode Optimizer (DraftKings)")
 
-uploaded_file = st.file_uploader("Upload your CSV (DraftKings CAPTAIN mode)", type=["csv"])
-if uploaded_file is not None:
+# --- File upload ---
+uploaded_file = st.file_uploader("Upload DraftKings Salary CSV", type=["csv"])
+if not uploaded_file:
+    st.stop()
+
+try:
     df = pd.read_csv(uploaded_file)
-    st.success("CSV Loaded Successfully!")
-    st.dataframe(df.head())
+except Exception as e:
+    st.error(f"Could not read CSV: {e}")
+    st.stop()
 
-    # Save uploaded file to a temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp_file:
-        tmp_file.write(uploaded_file.getbuffer())
-        tmp_filepath = tmp_file.name
+st.markdown("### Salary CSV Preview")
+st.dataframe(df.head(10))
 
-    # Initialize optimizer
-    optimizer = get_optimizer(Site.DRAFTKINGS_CAPTAIN_MODE, Sport.FOOTBALL)
-    optimizer.load_players_from_csv(tmp_filepath)  # <- use the file path
+# --- User inputs ---
+num_lineups = st.slider("Number of lineups", 1, 50, 5)
+max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
+max_repeating_players = st.slider("Max repeating players across lineups", 0, 10, 3)
+stack_qb_wr_te = st.checkbox("Stack QB + WR/TE?", value=True)
+min_salary_cap = st.number_input("Minimum salary cap", value=49000)
 
-    # Stacking options
-    st.subheader("Stacking Options")
-    stack_option = st.selectbox("Choose a stacking option:", ("None", "QB + WR", "QB + TE"))
-    if stack_option == "QB + WR":
-        optimizer.add_stack(PositionsStack(['QB','WR']))
-    elif stack_option == "QB + TE":
-        optimizer.add_stack(PositionsStack(['QB','TE']))
+# --- Column detection helpers ---
+def normalize_colname(c: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', c.lower())
 
-    # Team exposures
-    st.subheader("Team Exposure")
-    teams = df['TeamAbbrev'].unique()
-    exposures = {}
-    for team in teams:
-        exposures[team] = st.slider(f"Max exposure for {team}", 0.0, 1.0, 0.5, 0.05)
-    optimizer.set_teams_max_exposures(exposures)
+def find_column(df: pd.DataFrame, candidates):
+    norm_map = {normalize_colname(c): c for c in df.columns}
+    for cand in candidates:
+        n = normalize_colname(cand)
+        if n in norm_map:
+            return norm_map[n]
+    return None
 
-    # Salary range
-    min_salary = st.number_input("Min Salary Cap", value=49200)
-    max_salary = st.number_input("Max Salary Cap", value=50000)
-    optimizer.set_min_salary_cap(min_salary)
-    optimizer.set_max_salary_cap(max_salary)
+name_col = find_column(df, ["name", "player"])
+salary_col = find_column(df, ["salary", "salary_usd"])
+pos_col = find_column(df, ["position", "positions", "pos"])
+team_col = find_column(df, ["team", "teamabbrev", "team_abbrev"])
+fppg_col = find_column(df, ["fppg", "projectedpoints", "avgpointspergame"])
 
-    # Number of lineups
-    num_lineups = st.number_input("Number of Lineups to Generate", min_value=1, max_value=100, value=10)
+# --- Initialize optimizer ---
+optimizer = get_optimizer(Site.DRAFTKINGS_CAPTAIN_MODE, Sport.FOOTBALL)
 
-    st.subheader("Generated Lineups")
+players = []
+for idx, row in df.iterrows():
     try:
-        lineups_list = []
+        name = str(row[name_col])
+        salary = float(row[salary_col])
+        pos = [p.strip() for p in str(row[pos_col]).split('/')] if pos_col else None
+        team = str(row[team_col]) if team_col else None
+        fppg = float(row[fppg_col]) if fppg_col else 0.0
+        players.append(Player(f"p{idx}", *name.split(" ", 1), pos, team, salary, fppg))
+    except Exception:
+        continue
+
+optimizer.player_pool.load_players(players)
+
+# --- Apply constraints ---
+optimizer.set_max_repeating_players(max_repeating_players)
+optimizer.set_min_salary_cap(min_salary_cap)
+optimizer.set_max_exposure(max_exposure)
+
+if stack_qb_wr_te:
+    optimizer.add_stack(PositionsStack(["QB", "WR"]))
+    optimizer.add_stack(PositionsStack(["QB", "TE"]))
+
+# --- Generate lineups ---
+if st.button("Generate Lineups"):
+    lineups_list = []
+    with st.spinner("Generating..."):
         for lineup in optimizer.optimize(n=num_lineups, exposure_strategy=AfterEachExposureStrategy):
-            lineup_dict = {
-                p.lineup_position: f"{p.full_name} ({p.position}) - ${p.salary}"
-                for p in lineup.players
-            }
-            lineup_dict['FPPG'] = lineup.fantasy_points_projection
-            lineups_list.append(lineup_dict)
+            row = {}
+            # captain
+            row["Captain"] = getattr(lineup.captain, "full_name", str(lineup.captain))
+            # flex players
+            for idx, p in enumerate(lineup.players):
+                col = f"{p.positions[0]}{idx+1}" if p.positions else f"FLEX{idx+1}"
+                row[col] = f"{p.full_name}({getattr(p,'id','')})"
+            # totals
+            row["TotalSalary"] = sum([getattr(p, "salary", 0) for p in lineup.players])
+            row["ProjectedPoints"] = sum([getattr(p, "fppg", 0) for p in lineup.players])
+            lineups_list.append(row)
 
-        # Display lineups
-        lineups_df = pd.DataFrame(lineups_list)
-        max_fppg = lineups_df['FPPG'].max()
+    df_lineups = pd.DataFrame(lineups_list)
+    st.markdown("### Generated Lineups")
+    st.dataframe(df_lineups)
 
-        def highlight_top(row):
-            return ['background-color: #b3ffb3' if row['FPPG'] == max_fppg else '' for _ in row]
-
-        st.dataframe(lineups_df.style.apply(highlight_top, axis=1))
-
-        # Export button
-        csv_export = lineups_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "Export Lineups to CSV",
-            data=csv_export,
-            file_name="captain_mode_lineups.csv",
-            mime="text/csv"
-        )
-
-    except Exception as e:
-        st.error(f"Error generating lineups: {e}")
+    csv_bytes = df_lineups.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download Lineups CSV",
+        csv_bytes,
+        file_name="captain_mode_lineups.csv",
+        mime="text/csv",
+    )
