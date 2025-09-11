@@ -23,7 +23,7 @@ def player_display_name(p):
 
 # --- UI -------------------------------------------------------------------
 st.title("DFS Optimizer")
-uploaded_file = st.file_uploader("Upload DraftKings NFL CSV (Name, Position, Salary, Team, avgpointspergame)", type=["csv"])
+uploaded_file = st.file_uploader("Upload DraftKings NFL CSV (Name + ID, Roster Position, Salary, TeamAbbrev, AvgPointsPerGame)", type=["csv"])
 if not uploaded_file:
     st.stop()
 
@@ -38,14 +38,14 @@ players = []
 skipped = 0
 for _, row in df.iterrows():
     try:
-        player_id = str(row.get("Name", "r" + str(_)))
-        name = str(row.get("Name", "Unknown")).split(" ", 1)
+        player_id = str(row.get("ID", row.get("Name + ID", "r" + str(_))))
+        name = str(row.get("Name + ID", "Unknown")).split(" (")[0].split(" ", 1)
         first_name = name[0]
         last_name = name[1] if len(name) > 1 else ""
-        positions = [p.strip() for p in str(row.get("Position", "")).split("/")]
-        team = str(row.get("Team", ""))
+        positions = [p.strip() for p in str(row.get("Roster Position", "")).split("/")]
+        team = str(row.get("TeamAbbrev", ""))
         salary = parse_salary(row.get("Salary"))
-        fppg = safe_float(row.get("avgpointspergame"))
+        fppg = safe_float(row.get("AvgPointsPerGame"))
         if salary is None or not positions or positions == [""]:
             skipped += 1
             continue
@@ -63,7 +63,7 @@ optimizer = get_optimizer(Site.DRAFTKINGS, Sport.FOOTBALL)
 optimizer.player_pool.load_players(players)
 
 # --- generate lineups ------------------------------------------------------
-num_lineups = st.slider("Number of lineups", 1, 150, 50)
+num_lineups = st.slider("Number of lineups", 1, 150, 150)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
 min_salary = st.number_input("Min salary", value=49000, min_value=0, max_value=50000)
 max_salary = st.number_input("Max salary", value=50000, min_value=0, max_value=50000)
@@ -72,7 +72,8 @@ max_player_pairs = st.slider("Max player pair appearances", 1, num_lineups, min(
 if st.button("Generate"):
     with st.spinner("Generating..."):
         try:
-            lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
+            generate_n = min(num_lineups * 3, 1000)
+            lineups = list(optimizer.optimize(n=generate_n, max_exposure=max_exposure))
             st.write(f"Initially generated {len(lineups)} lineups")
             
             # Filter by salary range
