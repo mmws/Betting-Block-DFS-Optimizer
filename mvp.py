@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
 from itertools import combinations
+from collections import Counter
 
 st.set_page_config(page_title="DFS Optimizer")
 
@@ -67,12 +68,12 @@ num_lineups = st.slider("Number of lineups", 1, 150, 150)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
 min_salary = st.number_input("Min salary", value=49000, min_value=0, max_value=50000)
 max_salary = st.number_input("Max salary", value=50000, min_value=0, max_value=50000)
-max_player_pairs = st.slider("Max player pair appearances", 1, num_lineups, min(15, num_lineups))
+max_player_pairs = st.slider("Max player pair appearances", 1, num_lineups, 5)
 
 if st.button("Generate"):
     with st.spinner("Generating..."):
         try:
-            generate_n = min(num_lineups * 3, 1000)
+            generate_n = min(num_lineups * 5, 1500)
             lineups = list(optimizer.optimize(n=generate_n, max_exposure=max_exposure))
             st.write(f"Initially generated {len(lineups)} lineups")
             
@@ -98,6 +99,17 @@ if st.button("Generate"):
                         break
                 filtered_lineups = selected_lineups[:num_lineups]
             st.write(f"{len(filtered_lineups)} lineups after pair filter (max {max_player_pairs})")
+            
+            # Summarize top player pairs
+            pair_counts_display = Counter()
+            for lineup in filtered_lineups:
+                players = lineup.players
+                pairs = list(combinations([player_display_name(p) for p in players], 2))
+                pair_counts_display.update(pairs)
+            if pair_counts_display:
+                st.write("Most common player pairs:")
+                for pair, count in pair_counts_display.most_common(5):
+                    st.write(f"{pair[0]} & {pair[1]}: {count} times")
         except Exception as e:
             st.error(f"Error generating lineups: {e}")
             st.stop()
