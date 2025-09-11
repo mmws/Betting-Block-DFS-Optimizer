@@ -8,7 +8,7 @@ from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
 
 st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
 
-# --- Config / mappings -----------------------------------------------------
+# --- Config / mappings ---
 SITE_MAP = {
     "DraftKings NFL": (Site.DRAFTKINGS, Sport.FOOTBALL),
     "FanDuel NFL": (Site.FANDUEL, Sport.FOOTBALL),
@@ -19,7 +19,7 @@ SITE_MAP = {
 NFL_POSITION_HINTS = {"QB", "RB", "WR", "TE", "K", "DST"}
 NBA_POSITION_HINTS = {"PG", "SG", "SF", "PF", "C", "G", "F"}
 
-# --- helpers ---------------------------------------------------------------
+# --- helpers ---
 def normalize_colname(c: str) -> str:
     return re.sub(r'[^a-z0-9]', '', c.lower())
 
@@ -54,7 +54,7 @@ def guess_sport_from_positions(series: pd.Series) -> Optional[str]:
                   .astype(str)
                   .str.replace(' ', '')
                   .str.upper()
-                  .str.split('/')
+                  .str.split('/|,')
                   .explode()
                   .unique()
         )
@@ -101,7 +101,7 @@ def player_display_name(p) -> str:
     if full: return full
     return str(p)
 
-# --- UI -------------------------------------------------------------------
+# --- UI ---
 st.title("The Betting Block DFS Optimizer")
 st.write("Upload a salary CSV exported from DraftKings or FanDuel (NFL/NBA).")
 
@@ -119,7 +119,7 @@ except Exception as e:
 st.markdown("**Preview (first 10 rows):**")
 st.dataframe(df.head(10))
 
-# --- detect columns & site/sport ------------------------------------------
+# --- detect columns ---
 detected_site = guess_site_from_filename(getattr(uploaded_file, "name", None))
 id_col = find_column(df, ["id","playerid","player_id","ID"])
 name_plus_id_col = find_column(df, ["name + id","name+id","name_plus_id","name_id","nameandid"])
@@ -155,7 +155,7 @@ else:
 site, sport = SITE_MAP[site_choice]
 optimizer = get_optimizer(site, sport)
 
-# --- build players --------------------------------------------------------
+# --- build players ---
 players = []
 skipped = 0
 for idx, row in df.iterrows():
@@ -198,57 +198,69 @@ for idx, row in df.iterrows():
         continue
 
 st.write(f"Loaded {len(players)} players (skipped {skipped})")
-if len(players) == 0:
-    st.error("No valid players!")
-    st.stop()
+if len(players)==0: st.error("No valid players!"); st.stop()
 
 optimizer.player_pool.load_players(players)
 
-# --- generate lineups ------------------------------------------------------
+# --- lineup settings ---
 num_lineups = st.slider("Number of lineups", 1, 50, 5)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-max_repeating_players = st.slider("Max repeating players in multiple lineups", 0, 5, 2)
+max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
+optimizer.set_max_repeating_players(max_repeating_players)
+
 gen_btn = st.button("Generate lineups")
 
+# --- generate lineups ---
 if gen_btn:
-    with st.spinner("Generating..."):
-        try:
-            # Set max repeating players
-            optimizer.set_max_repeating_players(max_repeating_players)
-
-            # Generate lineups
+    try:
+        with st.spinner("Generating..."):
             lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
+        st.success(f"Generated {len(lineups)} lineup(s)")
+    except Exception as e:
+        st.error(f"Error generating lineups: {e}")
+        lineups = []
 
-            st.success(f"Generated {len(lineups)} lineup(s)")
+    if lineups:
+        # --- map positions safely ---
+        position_columns = {
+            "QB": ["QB"],
+            "RB": ["RB", "RB1"],
+            "WR": ["WR", "WR1", "WR2"],
+            "TE": ["TE"],
+            "FLEX": ["FLEX"],
+            "DST": ["DST"]
+        }
 
-            # Convert to wide format
-            wide_rows = []
-            position_order = ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]
-            for lineup in lineups:
-                lineup_players = getattr(lineup, "players", None) or getattr(lineup, "_players", None) or list(lineup)
-                row = {}
-                pos_counts = {pos: 0 for pos in position_order}
-
-                for p in lineup_players:
-                    for pos in p.positions or []:
-                        if pos not in position_order:
-                            continue
-                        idx = [i for i, h in enumerate(position_order) if h == pos][pos_counts[pos]]
-                        row[position_order[idx]] = f"{player_display_name(p)}({getattr(p,'id','')})"
-                        pos_counts[pos] += 1
+        df_rows = []
+        for lineup in lineups:
+            row = {}
+            pos_counter = {k: 0 for k in position_columns.keys()}
+            for p in lineup.players:
+                assigned = False
+                for pos in p.positions or []:
+                    if pos in position_columns and pos_counter[pos] < len(position_columns[pos]):
+                        col = position_columns[pos][pos_counter[pos]]
+                        row[col] = f"{player_display_name(p)}({p.id})"
+                        pos_counter[pos] += 1
+                        assigned = True
                         break
+                if not assigned:
+                    # assign to FLEX if available
+                    if pos_counter["FLEX"] < 1:
+                        row["FLEX"] = f"{player_display_name(p)}({p.id})"
+                        pos_counter["FLEX"] += 1
 
-                # Totals
-                row["TotalSalary"] = sum([getattr(p, "salary", 0) for p in lineup_players])
-                row["ProjectedPoints"] = sum([safe_float(getattr(p, "fppg", 0)) for p in lineup_players])
-                wide_rows.append(row)
+            # ensure all columns exist
+            for col in ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]:
+                if col not in row: row[col] = ""
 
-            df_wide = pd.DataFrame(wide_rows)
-            st.markdown("### Lineups (wide)")
-            st.dataframe(df_wide)
+            row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
+            row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
+            df_rows.append(row)
 
-            csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-            st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+        df_wide = pd.DataFrame(df_rows)
+        st.markdown("### Lineups (wide)")
+        st.dataframe(df_wide)
 
-        except Exception as e:
-            st.error(f"Error generating lineups: {e}")
+        csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
+        st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
