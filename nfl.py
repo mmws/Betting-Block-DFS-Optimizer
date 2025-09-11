@@ -204,7 +204,7 @@ if len(players)==0: st.error("No valid players!"); st.stop()
 optimizer.player_pool.load_players(players)
 
 # --- generate lineups ------------------------------------------------------
-num_lineups = st.slider("Number of lineups",1,50,5)
+num_lineups = st.slider("Number of lineups",1,150,5)
 max_exposure = st.slider("Max exposure per player",0.0,1.0,0.3)
 gen_btn = st.button("Generate lineups")
 
@@ -233,3 +233,4 @@ if gen_btn:
 
     csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
     st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+
