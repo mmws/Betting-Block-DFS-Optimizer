@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
-from itertools import combinations
 from collections import Counter
 
 st.set_page_config(page_title="DFS Optimizer")
@@ -66,50 +65,30 @@ optimizer.player_pool.load_players(players)
 # --- generate lineups ------------------------------------------------------
 num_lineups = st.slider("Number of lineups", 1, 150, 150)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-min_salary = st.number_input("Min salary", value=49000, min_value=0, max_value=50000)
+min_salary = st.number_input("Min salary", value=48000, min_value=0, max_value=50000)
 max_salary = st.number_input("Max salary", value=50000, min_value=0, max_value=50000)
-max_player_pairs = st.slider("Max player pair appearances", 1, num_lineups, 5)
+max_player_pairs = st.slider("Max player pair appearances", 1, num_lineups, 3)
 
 if st.button("Generate"):
     with st.spinner("Generating..."):
         try:
             generate_n = min(num_lineups * 5, 1500)
+            optimizer.set_max_repeating_players(max_player_pairs)
             lineups = list(optimizer.optimize(n=generate_n, max_exposure=max_exposure))
             st.write(f"Initially generated {len(lineups)} lineups")
             
             # Filter by salary range
-            salary_filtered = [lineup for lineup in lineups if min_salary <= sum(p.salary for p in lineup.players) <= max_salary]
-            st.write(f"{len(salary_filtered)} lineups after salary filter ({min_salary}-{max_salary})")
+            filtered_lineups = [lineup for lineup in lineups if min_salary <= sum(p.salary for p in lineup.players) <= max_salary]
+            st.write(f"{len(filtered_lineups)} lineups after salary filter ({min_salary}-{max_salary})")
             
-            # Filter by max player pairs
-            filtered_lineups = salary_filtered
-            if max_player_pairs < num_lineups:
-                pair_counts = {}
-                selected_lineups = []
-                for lineup in sorted(salary_filtered, key=lambda x: sum(p.fppg for p in x.players), reverse=True):
-                    players = lineup.players
-                    pairs = list(combinations([p.id for p in players], 2))
-                    temp_counts = pair_counts.copy()
-                    for pair in pairs:
-                        temp_counts[pair] = temp_counts.get(pair, 0) + 1
-                    if all(count <= max_player_pairs for count in temp_counts.values()):
-                        selected_lineups.append(lineup)
-                        pair_counts = temp_counts
-                    if len(selected_lineups) >= num_lineups:
-                        break
-                filtered_lineups = selected_lineups[:num_lineups]
-            st.write(f"{len(filtered_lineups)} lineups after pair filter (max {max_player_pairs})")
-            
-            # Summarize top player pairs
-            pair_counts_display = Counter()
+            # Summarize player usage
+            player_counts = Counter()
             for lineup in filtered_lineups:
-                players = lineup.players
-                pairs = list(combinations([player_display_name(p) for p in players], 2))
-                pair_counts_display.update(pairs)
-            if pair_counts_display:
-                st.write("Most common player pairs:")
-                for pair, count in pair_counts_display.most_common(5):
-                    st.write(f"{pair[0]} & {pair[1]}: {count} times")
+                player_counts.update([player_display_name(p) for p in lineup.players])
+            if player_counts:
+                st.write("Most common players:")
+                for player, count in player_counts.most_common(5):
+                    st.write(f"{player}: {count} times")
         except Exception as e:
             st.error(f"Error generating lineups: {e}")
             st.stop()
