@@ -1,3 +1,2 @@
-streamlit
-pandas
-pydfs-lineup-optimizer
+pandas==2.2.2 streamlit==1.38.0 pydfs-lineup-optimizer==3.5.0
+
