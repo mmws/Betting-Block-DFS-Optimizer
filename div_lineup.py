@@ -54,7 +54,7 @@ def guess_sport_from_positions(series: pd.Series) -> Optional[str]:
                   .astype(str)
                   .str.replace(' ', '')
                   .str.upper()
-                  .str.split('/|,')
+                  .str.split('/')
                   .explode()
                   .unique()
         )
@@ -198,59 +198,49 @@ for idx, row in df.iterrows():
         continue
 
 st.write(f"Loaded {len(players)} players (skipped {skipped})")
-if len(players)==0: st.error("No valid players!"); st.stop()
+if len(players) == 0:
+    st.error("No valid players!")
+    st.stop()
 
 optimizer.player_pool.load_players(players)
 
 # --- generate lineups ------------------------------------------------------
 num_lineups = st.slider("Number of lineups", 1, 50, 5)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-max_repeating_players = st.slider("Max repeating players between lineups", 0, 9, 3)
+max_repeating_players = st.slider("Max repeating players in multiple lineups", 0, 5, 2)
 gen_btn = st.button("Generate lineups")
 
 if gen_btn:
     with st.spinner("Generating..."):
         try:
-            # generate extra candidates to allow filtering
-            candidate_lineups = list(optimizer.optimize(n=num_lineups*5, max_exposure=max_exposure))
-            accepted_lineups = []
+            # Set max repeating players
+            optimizer.set_max_repeating_players(max_repeating_players)
 
-            # filter by max repeating players
-            for lineup in candidate_lineups:
-                lineup_players = getattr(lineup,"players",None) or getattr(lineup,"_players",None) or list(lineup)
-                is_valid = True
-                for accepted in accepted_lineups:
-                    accepted_players = getattr(accepted,"players",None) or getattr(accepted,"_players",None) or list(accepted)
-                    overlap = len(set(p.id for p in lineup_players) & set(p.id for p in accepted_players))
-                    if overlap > max_repeating_players:
-                        is_valid = False
-                        break
-                if is_valid:
-                    accepted_lineups.append(lineup)
-                if len(accepted_lineups) >= num_lineups:
-                    break
+            # Generate lineups
+            lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
 
-            lineups = accepted_lineups
             st.success(f"Generated {len(lineups)} lineup(s)")
 
-            # --- convert to wide format -----------------------------------------
+            # Convert to wide format
             wide_rows = []
-            position_order = ["QB","RB","RB","WR","WR","WR","TE","FLEX","DST"]
+            position_order = ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]
             for lineup in lineups:
-                lineup_players = getattr(lineup,"players",None) or getattr(lineup,"_players",None) or list(lineup)
-                row = {pos: "" for pos in position_order}
+                lineup_players = getattr(lineup, "players", None) or getattr(lineup, "_players", None) or list(lineup)
+                row = {}
+                pos_counts = {pos: 0 for pos in position_order}
 
-                pos_counts = {p: 0 for p in position_order}
                 for p in lineup_players:
-                    for pos in p.positions:
-                        # find next available slot
-                        for i, target_pos in enumerate(position_order):
-                            if target_pos.startswith(pos) and row[target_pos]=="":
-                                row[target_pos] = f"{player_display_name(p)}({p.id})"
-                                break
+                    for pos in p.positions or []:
+                        if pos not in position_order:
+                            continue
+                        idx = [i for i, h in enumerate(position_order) if h == pos][pos_counts[pos]]
+                        row[position_order[idx]] = f"{player_display_name(p)}({getattr(p,'id','')})"
+                        pos_counts[pos] += 1
+                        break
 
-                row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup_players)
-                row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup_players)
+                # Totals
+                row["TotalSalary"] = sum([getattr(p, "salary", 0) for p in lineup_players])
+                row["ProjectedPoints"] = sum([safe_float(getattr(p, "fppg", 0)) for p in lineup_players])
                 wide_rows.append(row)
 
             df_wide = pd.DataFrame(wide_rows)
@@ -259,5 +249,6 @@ if gen_btn:
 
             csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
             st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+
         except Exception as e:
             st.error(f"Error generating lineups: {e}")
