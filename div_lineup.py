@@ -1,493 +1,230 @@
 import streamlit as st
 import pandas as pd
-import random
-from collections import Counter
-
-# -----------------------------
-# Diversify function
-# -----------------------------
-def diversify_lineups_wide(df_wide, salary_dict, points_dict, max_salary=50000, max_exposure=0.4, randomness=0.1):
-    """
-    Diversify lineups by limiting max player exposure, ensuring salary cap,
-    avoiding duplicates, and recalculating totals.
-    """
-    diversified = df_wide.copy()
-    total_lineups = len(diversified)
-
-    # Flatten all players for exposure count
-    players = []
-    for col in diversified.columns:
-        if col not in ["TotalSalary", "TotalPoints"]:
-            for val in diversified[col]:
-                if isinstance(val, str):
-                    name = val.split("(")[0].strip()
-                    players.append(name)
-    exposure = Counter(players)
-
-    # Loop lineups
-    for i in diversified.index:
-        seen_players = set()
-        lineup_salary = 0
-        lineup_points = 0
-
-        for col in diversified.columns:
-            if col in ["TotalSalary", "TotalPoints"]:
-                continue
-            val = diversified.at[i, col]
-            if not isinstance(val, str):
-                continue
-
-            name = val.split("(")[0].strip()
-            player_exp = exposure[name] / total_lineups
-
-            # If over exposure or duplicate, attempt replacement
-            if player_exp > max_exposure or name in seen_players:
-                replacements = list(salary_dict.keys())
-                random.shuffle(replacements)
-
-                for rep in replacements:
-                    if rep == name:
-                        continue
-                    if rep in seen_players:
-                        continue
-
-                    # Recalculate if valid replacement
-                    new_salary = (lineup_salary - salary_dict.get(name, 0)) + salary_dict.get(rep, 0)
-                    if new_salary > max_salary:
-                        continue
-
-                    diversified.at[i, col] = rep
-                    name = rep
-                    break
-
-            seen_players.add(name)
-            lineup_salary += salary_dict.get(name, 0)
-            lineup_points += points_dict.get(name, 0)
-
-        # Update totals
-        diversified.at[i, "TotalSalary"] = lineup_salary
-        diversified.at[i, "TotalPoints"] = lineup_points
-
-    return diversified
-
-
-# -----------------------------
-# Streamlit App
-# -----------------------------
-st.title("DFS Optimizer with Diversification")
-
-# Upload salary file
+import re
+from typing import Optional, Tuple, List
+from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
+st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
+# --- Config / mappings -----------------------------------------------------
+SITE_MAP = {
+    "DraftKings NFL": (Site.DRAFTKINGS, Sport.FOOTBALL),
+    "FanDuel NFL": (Site.FANDUEL, Sport.FOOTBALL),
+    "DraftKings NBA": (Site.DRAFTKINGS, Sport.BASKETBALL),
+    "FanDuel NBA": (Site.FANDUEL, Sport.BASKETBALL),
+}
+NFL_POSITION_HINTS = {"QB", "RB", "WR", "TE", "K", "DST"}
+NBA_POSITION_HINTS = {"PG", "SG", "SF", "PF", "C", "G", "F"}
+# --- helpers ---------------------------------------------------------------
+def normalize_colname(c: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', c.lower())
+def find_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+    norm_map = {normalize_colname(c): c for c in df.columns}
+    for cand in candidates:
+        n = normalize_colname(cand)
+        if n in norm_map:
+            return norm_map[n]
+    for col in df.columns:
+        for cand in candidates:
+            if cand.lower().replace(' ', '') in col.lower().replace(' ', ''):
+                return col
+    return None
+def guess_site_from_filename(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return None
+    n = name.lower()
+    if "draftkings" in n or re.search(r'\bdk\b', n):
+        return "DraftKings"
+    if "fanduel" in n or re.search(r'\bfd\b', n):
+        return "FanDuel"
+    return None
+def guess_sport_from_positions(series: pd.Series) -> Optional[str]:
+    if series is None:
+        return None
+    try:
+        all_pos = (
+            series.dropna()
+                  .astype(str)
+                  .str.replace(' ', '')
+                  .str.upper()
+                  .str.split('/')
+                  .explode()
+                  .unique()
+        )
+        posset = set([str(p).strip() for p in all_pos if p])
+        if posset & NFL_POSITION_HINTS:
+            return "NFL"
+        if posset & NBA_POSITION_HINTS:
+            return "NBA"
+    except Exception:
+        pass
+    return None
+def parse_name_and_id_from_field(val: str) -> Tuple[str, Optional[str]]:
+    s = str(val).strip()
+    m = re.match(r'^(.*?)\s*\((\d+)\)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
+    m = re.match(r'^(.*?)\s*[-\|\/]\s*(\d+)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
+    m = re.match(r'^(.*\D)\s+(\d+)\s*$', s)
+    if m: return m.group(1).strip(), m.group(2)
+    return s, None
+def parse_salary(s) -> Optional[float]:
+    if pd.isna(s): return None
+    try:
+        t = str(s).replace('$','').replace(',','').strip()
+        if t == '': return None
+        return float(t)
+    except: return None
+def safe_float(x) -> Optional[float]:
+    try:
+        if pd.isna(x): return None
+        return float(x)
+    except:
+        try: return float(str(x).replace(',', '').strip())
+        except: return None
+def player_display_name(p) -> str:
+    fn = getattr(p, "first_name", None)
+    ln = getattr(p, "last_name", None)
+    if fn or ln: return f"{fn or ''} {ln or ''}".strip()
+    full = getattr(p, "full_name", None)
+    if full: return full
+    return str(p)
+# --- UI -------------------------------------------------------------------
+st.title("The Betting Block DFS Optimizer")
+st.write("Upload a salary CSV exported from DraftKings or FanDuel (NFL/NBA).")
 uploaded_file = st.file_uploader("Upload salary CSV", type=["csv"])
-if uploaded_file:
-    salary_df = pd.read_csv(uploaded_file)
-
-    # Example: expecting Player, Salary, FPPG columns
-    salary_dict = dict(zip(salary_df["Player"], salary_df["Salary"]))
-    points_dict = dict(zip(salary_df["Player"], salary_df["FPPG"]))
-
-    # Fake generated lineups (replace with optimizer output)
-    wide_rows = [
-        {
-            "QB": "Joe Burrow(123)",
-            "RB1": "Christian McCaffrey(456)",
-            "RB2": "Breece Hall(789)",
-            "WR1": "CeeDee Lamb(321)",
-            "WR2": "Tee Higgins(654)",
-            "WR3": "Calvin Ridley(987)",
-            "TE": "Mark Andrews(741)",
-            "FLEX": "James Cook(852)",
-            "DST": "Bills(963)"
-        }
-        for _ in range(10)
-    ]
-
-    # Add totals to wide rows
-    for row in wide_rows:
-        total_salary = sum(salary_dict.get(p.split("(")[0].strip(), 0) for p in row.values())
-        total_points = sum(points_dict.get(p.split("(")[0].strip(), 0) for p in row.values())
-        row["TotalSalary"] = total_salary
-        row["TotalPoints"] = total_points
-
-    df_wide = pd.DataFrame(wide_rows)
-
-    # Show generated lineups
+if not uploaded_file:
+    st.info("Upload a CSV (e.g. `DKSalaries.csv`). The app will try to auto-detect site & sport.")
+    st.stop()
+try:
+    df = pd.read_csv(uploaded_file)
+except Exception as e:
+    st.error(f"Could not read CSV: {e}")
+    st.stop()
+st.markdown("**Preview (first 10 rows):**")
+st.dataframe(df.head(10))
+# --- detect columns & site/sport ------------------------------------------
+detected_site = guess_site_from_filename(getattr(uploaded_file, "name", None))
+id_col = find_column(df, ["id","playerid","player_id","ID"])
+name_plus_id_col = find_column(df, ["name + id","name+id","name_plus_id","name_id","nameandid"])
+name_col = find_column(df, ["name","full_name","player"])
+first_col = find_column(df, ["first_name","firstname","first"])
+last_col = find_column(df, ["last_name","lastname","last"])
+pos_col = find_column(df, ["position","positions","pos","roster position","rosterposition","roster_pos"])
+salary_col = find_column(df, ["salary","salary_usd"])
+team_col = find_column(df, ["team","teamabbrev","team_abbrev","teamabbr"])
+fppg_col = find_column(df, ["avgpointspergame","avgpoints","fppg","projectedpoints","proj"])
+guessed_sport = guess_sport_from_positions(df[pos_col]) if pos_col else None
+auto_choice = f"{detected_site} {guessed_sport}" if detected_site and guessed_sport and f"{detected_site} {guessed_sport}" in SITE_MAP else None
+st.markdown("### Auto-detect diagnostics")
+st.write({
+    "filename": getattr(uploaded_file, "name", None),
+    "detected_site": detected_site,
+    "pos_column": pos_col,
+    "guessed_sport": guessed_sport,
+    "name_column": name_col or name_plus_id_col,
+    "id_column": id_col,
+})
+site_choice = None
+if auto_choice:
+    st.success(f"Auto-detected: **{auto_choice}**")
+    site_choice = st.selectbox("Site/sport", list(SITE_MAP.keys()), index=list(SITE_MAP.keys()).index(auto_choice))
+else:
+    st.warning("Could not auto-detect site+sport. Please choose manually.")
+    site_choice = st.selectbox("Site/sport", list(SITE_MAP.keys()))
+site, sport = SITE_MAP[site_choice]
+optimizer = get_optimizer(site, sport)
+# --- build players --------------------------------------------------------
+players = []
+skipped = 0
+for idx, row in df.iterrows():
+    try:
+        player_id = str(row[id_col]).strip() if id_col and not pd.isna(row[id_col]) else None
+        if not player_id and name_plus_id_col:
+            _, player_id = parse_name_and_id_from_field(row[name_plus_id_col])
+        if not player_id: player_id = f"r{idx}"
+        if first_col and last_col:
+            first_name = str(row[first_col]).strip()
+            last_name = str(row[last_col]).strip()
+        elif name_col:
+            parts = str(row[name_col]).split(" ",1)
+            first_name = parts[0].strip()
+            last_name = parts[1].strip() if len(parts)>1 else ""
+        elif name_plus_id_col:
+            parsed_name,_ = parse_name_and_id_from_field(row[name_plus_id_col])
+            parts = parsed_name.split(" ",1)
+            first_name = parts[0].strip()
+            last_name = parts[1].strip() if len(parts)>1 else ""
+        else:
+            first_name = str(row.get(name_col, f"Player{idx}"))
+            last_name = ""
+        raw_pos = str(row[pos_col]).strip() if pos_col and not pd.isna(row[pos_col]) else None
+        positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
+        team = str(row[team_col]).strip() if team_col and not pd.isna(row[team_col]) else None
+        salary = parse_salary(row[salary_col]) if salary_col else None
+        fppg = safe_float(row[fppg_col]) if fppg_col else None
+        if salary is None:
+            skipped += 1
+            continue
+        players.append(Player(player_id, first_name, last_name, positions or None, team, salary, fppg or 0.0))
+    except:
+        skipped += 1
+        continue
+st.write(f"Loaded {len(players)} players (skipped {skipped})")
+if len(players)==0: st.error("No valid players!"); st.stop()
+optimizer.player_pool.load_players(players)
+# --- generate lineups ------------------------------------------------------
+num_lineups = st.slider("Number of lineups",1,150,5)
+max_exposure = st.slider("Max exposure per player",0.0,1.0,0.3)
+min_salary = st.number_input("Minimum total salary", value=49500, min_value=0, max_value=50000)
+max_salary = st.number_input("Maximum total salary", value=50000, min_value=0, max_value=50000)
+gen_btn = st.button("Generate lineups")
+if gen_btn:
+    with st.spinner("Generating..."):
+        lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
+        # Filter lineups by salary range
+        filtered_lineups = [
+            lineup for lineup in lineups
+            if min_salary <= sum(p.salary for p in lineup.players) <= max_salary
+        ]
+    st.success(f"Generated {len(filtered_lineups)} lineup(s) within salary range {min_salary}-{max_salary}")
+    # --- convert to wide format ------------------------------------------------
+    wide_rows = []
+    position_order = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "DST"]
+    for lineup in filtered_lineups:
+        lineup_players = getattr(lineup, "players", None) or getattr(lineup, "_players", None) or list(lineup)
+        row = {}
+        # Map players to the specified position order
+        player_idx = 0
+        rb_count = 0
+        wr_count = 0
+        for pos in position_order:
+            if player_idx < len(lineup_players):
+                p = lineup_players[player_idx]
+                # Handle multiple RB and WR positions
+                if pos.startswith("RB") and "RB" in p.positions:
+                    row[pos] = f"{player_display_name(p)} ({getattr(p, 'id', '')})"
+                    player_idx += 1
+                    rb_count += 1
+                elif pos.startswith("WR") and "WR" in p.positions:
+                    row[pos] = f"{player_display_name(p)} ({getattr(p, 'id', '')})"
+                    player_idx += 1
+                    wr_count += 1
+                elif pos == "FLEX" and any(pos in p.positions for pos in ["RB", "WR", "TE"]):
+                    row[pos] = f"{player_display_name(p)} ({getattr(p, 'id', '')})"
+                    player_idx += 1
+                elif pos == p.positions[0]:  # Exact position match (QB, TE, DST)
+                    row[pos] = f"{player_display_name(p)} ({getattr(p, 'id', '')})"
+                    player_idx += 1
+        # Skip incomplete lineups
+        if len(row) != len(position_order):
+            continue
+        row["TotalSalary"] = sum([getattr(p, "salary", 0) for p in lineup_players])
+        row["ProjectedPoints"] = sum([safe_float(getattr(p, "fppg", 0)) for p in lineup_players])
+        wide_rows.append(row)
+    if not wide_rows:
+        st.error("No lineups match the salary range and position requirements!")
+        st.stop()
+    df_wide = pd.DataFrame(wide_rows, columns=position_order + ["TotalSalary", "ProjectedPoints"])
     st.markdown("### Lineups (wide)")
     st.dataframe(df_wide)
-
-    # Diversify button
-    if st.button("Diversify Lineups"):
-        diversified = diversify_lineups_wide(
-            df_wide, salary_dict, points_dict,
-            max_salary=50000, max_exposure=0.4, randomness=0.3
-        )
-        st.markdown("### Diversified Lineups")
-        st.dataframe(diversified)
-
-        csv_bytes = diversified.to_csv(index=False).encode("utf-8")
-        st.download_button("Download Diversified CSV", csv_bytes, file_name="lineups_diversified.csv", mime="text/csv")
-    else:
-        # Default export
-        csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-        st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
-import streamlit as st
-import pandas as pd
-import random
-from collections import Counter
-from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
-
-# ---------------- Diversification Logic ---------------- #
-def diversify_lineups_wide(
-    df_wide, salary_df,
-    max_exposure=0.4,
-    max_pair_exposure=0.6,
-    randomness=0.15,
-    salary_cap=50000,
-    salary_min=49500
-):
-    diversified = df_wide.copy()
-    total_lineups = len(diversified)
-    
-    # Build salary + projection lookup
-    player_info = {}
-    for _, row in salary_df.iterrows():
-        try:
-            fppg = float(row.get("AvgPointsPerGame", 0))
-            if fppg < 0:
-                fppg = 0  # Replace negative FPPG with 0
-            player_info[row["Name"]] = {
-                "team": str(row.get("TeamAbbrev", "")),
-                "salary": float(row.get("Salary", 0)),
-                "fppg": fppg,
-                "position": str(row.get("Position", ""))
-            }
-        except (ValueError, TypeError):
-            st.warning(f"Invalid data for {row['Name']}: {row.to_dict()}. Skipping.")
-            continue
-    
-    # Initialize exposure counters
-    exposure = Counter()
-    pair_exposure = Counter()
-    
-    # Calculate initial exposures
-    for i in range(total_lineups):
-        lineup_players = []
-        for col in diversified.columns:
-            if col in ["Budget", "FPPG"]:
-                continue
-            val = diversified.at[i, col]
-            if isinstance(val, str):
-                name = val.split("(")[0].strip()
-                if name in player_info:  # Ensure player exists
-                    exposure[name] += 1
-                    lineup_players.append(name)
-        for a in range(len(lineup_players)):
-            for b in range(a + 1, len(lineup_players)):
-                pair_exposure[tuple(sorted([lineup_players[a], lineup_players[b]]))] += 1
-    
-    # Diversify
-    for lineup_idx in range(total_lineups):
-        lineup_players = [
-            diversified.at[lineup_idx, c].split("(")[0].strip()
-            for c in diversified.columns
-            if c not in ["Budget", "FPPG"] and isinstance(diversified.at[lineup_idx, c], str)
-            and diversified.at[lineup_idx, c].split("(")[0].strip() in player_info
-        ]
-        for col in diversified.columns:
-            if col in ["Budget", "FPPG"]:
-                continue
-            val = diversified.at[lineup_idx, col]
-            if not isinstance(val, str):
-                continue
-            name = val.split("(")[0].strip()
-            if name not in player_info:
-                continue
-            player_exp = exposure[name] / total_lineups
-            lineup_pairs = [tuple(sorted([name, p])) for p in lineup_players if p != name]
-            pair_flags = [pair_exposure[pair] / total_lineups > max_pair_exposure for pair in lineup_pairs]
-            
-            if player_exp > max_exposure or any(pair_flags):
-                if random.random() < randomness:
-                    # Find replacement candidates with same position
-                    current_pos = player_info[name]["position"]
-                    possible_replacements = [
-                        p for p in player_info.keys()
-                        if p != name and player_info[p]["position"] == current_pos
-                    ]
-                    random.shuffle(possible_replacements)
-                    for candidate in possible_replacements:
-                        temp_lineup = diversified.loc[lineup_idx].copy()
-                        temp_lineup[col] = f"{candidate} ({player_info[candidate]['team']})"
-                        
-                        # Recalculate totals and validate position counts
-                        lineup_salary, lineup_points = 0, 0
-                        temp_players = []
-                        pos_counts = {"QB": 0, "RB": 0, "WR": 0, "TE": 0, "DST": 0}
-                        for pos in diversified.columns:
-                            if pos in ["Budget", "FPPG"]:
-                                continue
-                            val2 = temp_lineup[pos]
-                            if isinstance(val2, str):
-                                nm = val2.split("(")[0].strip()
-                                if nm in player_info:
-                                    temp_players.append(nm)
-                                    lineup_salary += player_info[nm]["salary"]
-                                    lineup_points += player_info[nm]["fppg"]
-                                    pos_counts[player_info[nm]["position"]] += 1
-                        
-                        # Check salary and position constraints
-                        valid_positions = (
-                            pos_counts["QB"] == 1 and
-                            2 <= pos_counts["RB"] <= 3 and
-                            3 <= pos_counts["WR"] <= 4 and
-                            pos_counts["TE"] == 1 and
-                            pos_counts["DST"] == 1
-                        )
-                        if salary_min <= lineup_salary <= salary_cap and valid_positions:
-                            new_pairs = [
-                                tuple(sorted([a, b]))
-                                for i, a in enumerate(temp_players)
-                                for b in temp_players[i+1:]
-                            ]
-                            if all((pair_exposure[pair] + 1) / total_lineups <= max_pair_exposure for pair in new_pairs):
-                                # Accept replacement
-                                diversified.loc[lineup_idx, col] = f"{candidate} ({player_info[candidate]['team']})"
-                                diversified.at[lineup_idx, "Budget"] = lineup_salary
-                                diversified.at[lineup_idx, "FPPG"] = lineup_points
-                                # Update exposures
-                                exposure[name] -= 1
-                                exposure[candidate] += 1
-                                for pair in lineup_pairs:
-                                    pair_exposure[pair] -= 1
-                                for pair in new_pairs:
-                                    pair_exposure[pair] += 1
-                                break
-    
-    return diversified
-
-# ---------------- Streamlit App ---------------- #
-st.title("DFS Lineup Optimizer (NFL DraftKings)")
-st.write("Upload your DraftKings salaries CSV (Position,Name + ID,Name,ID,Roster Position,Salary,Game Info,TeamAbbrev,AvgPointsPerGame) to generate optimized NFL lineups.")
-
-# Upload CSV
-uploaded_file = st.file_uploader("Upload DraftKings Salaries CSV", type=["csv"])
-
-if uploaded_file:
-    try:
-        salary_df = pd.read_csv(uploaded_file)
-        st.success("✅ CSV loaded successfully!")
-        
-        # Validate and clean data
-        try:
-            salary_df["AvgPointsPerGame"] = pd.to_numeric(salary_df["AvgPointsPerGame"], errors="coerce")
-            salary_df["Salary"] = pd.to_numeric(salary_df["Salary"], errors="coerce")
-            salary_df["Name"] = salary_df["Name"].astype(str).str.strip()
-            salary_df["TeamAbbrev"] = salary_df["TeamAbbrev"].astype(str).str.strip()
-            salary_df["ID"] = salary_df["ID"].astype(str).str.strip()
-            salary_df["Position"] = salary_df["Position"].astype(str).str.strip()
-            invalid_fppg = salary_df[salary_df["AvgPointsPerGame"].isna() | (salary_df["AvgPointsPerGame"] < 0)][["Name", "AvgPointsPerGame"]]
-            invalid_salary = salary_df[salary_df["Salary"].isna() | (salary_df["Salary"] < 0)][["Name", "Salary"]]
-            invalid_names = salary_df[salary_df["Name"] == ""][["Name"]]
-            invalid_teams = salary_df[salary_df["TeamAbbrev"] == ""][["Name", "TeamAbbrev"]]
-            invalid_ids = salary_df[salary_df["ID"] == ""][["Name", "ID"]]
-            if not invalid_fppg.empty:
-                st.warning(f"⚠️ Invalid AvgPointsPerGame values found for players: {invalid_fppg.to_dict('records')}. Setting to 0.")
-                salary_df["AvgPointsPerGame"] = salary_df["AvgPointsPerGame"].fillna(0).clip(lower=0)
-            if not invalid_salary.empty:
-                st.warning(f"⚠️ Invalid Salary values found for players: {invalid_salary.to_dict('records')}. Skipping.")
-                salary_df = salary_df[~salary_df["Salary"].isna() & (salary_df["Salary"] >= 0)]
-            if not invalid_names.empty:
-                st.error(f"⚠️ Empty Name values found: {invalid_names.to_dict('records')}. Please fix CSV.")
-                raise ValueError("Empty Name values found.")
-            if not invalid_teams.empty:
-                st.error(f"⚠️ Empty TeamAbbrev values found: {invalid_teams.to_dict('records')}. Please fix CSV.")
-                raise ValueError("Empty TeamAbbrev values found.")
-            if not invalid_ids.empty:
-                st.error(f"⚠️ Empty ID values found: {invalid_ids.to_dict('records')}. Please fix CSV.")
-                raise ValueError("Empty ID values found.")
-        except Exception as e:
-            st.error(f"⚠️ Failed to process CSV data: {e}")
-            raise
-        
-        # Validate CSV format
-        expected_cols = ["Position", "Name + ID", "Name", "ID", "Roster Position", "Salary", "Game Info", "TeamAbbrev", "AvgPointsPerGame"]
-        missing = [col for col in expected_cols if col not in salary_df.columns]
-        if missing:
-            st.error(f"⚠️ Missing required columns: {missing}")
-        else:
-            # Check Position and Roster Position
-            if not (salary_df["Position"].isin(["QB", "RB", "WR", "TE", "DST"])).all():
-                st.error("⚠️ Invalid Position values! Must be QB, RB, WR, TE, or DST.")
-            elif not (salary_df["Roster Position"].isin(["QB", "RB/FLEX", "WR/FLEX", "TE/FLEX", "DST"])).all():
-                st.error("⚠️ Invalid Roster Position values! Must be QB, RB/FLEX, WR/FLEX, TE/FLEX, or DST.")
-            else:
-                # Preview
-                st.subheader("Salaries Preview")
-                st.write("Player Counts:", salary_df["Position"].value_counts().to_dict())
-                st.write("Game Counts:", salary_df["Game Info"].value_counts().to_dict())
-                st.dataframe(salary_df.head().style.format({"Salary": "${:,.0f}", "AvgPointsPerGame": "{:.2f}"}))
-
-                # Optimization Settings
-                st.subheader("Optimization Settings")
-                col1, col2 = st.columns(2)
-                with col1:
-                    salary_cap = st.number_input("Salary Cap", value=50000, step=500)
-                    min_salary = st.number_input("Minimum Salary", value=49500, step=500)
-                    num_lineups = st.number_input("Number of Lineups", min_value=1, max_value=150, value=10)
-                with col2:
-                    max_players_per_team = st.number_input("Max Players per Team", value=4, step=1)
-                    max_exposure = st.slider("Max Player Exposure (%)", 10, 100, 40, step=5) / 100.0
-                    max_pair_exposure = st.slider("Max Pair Exposure (%)", 10, 100, 60, step=5) / 100.0
-
-                if st.button("Generate Lineups"):
-                    optimizer = get_optimizer(Site.DRAFTKINGS, Sport.FOOTBALL)
-                    # Add players
-                    players = []
-                    for _, row in salary_df.iterrows():
-                        try:
-                            name = str(row["Name"]).strip()
-                            if not name:
-                                raise ValueError("Empty Name")
-                            name_parts = name.split(" ", 1)
-                            first_name = name_parts[0]
-                            last_name = name_parts[1] if len(name_parts) > 1 else "" if row["Position"] != "DST" else name
-                            player = Player(
-                                player_id=str(row["ID"]),
-                                first_name=first_name,
-                                last_name=last_name,
-                                positions=str(row["Position"]).split("/"),
-                                team=str(row["TeamAbbrev"]),
-                                salary=float(row["Salary"]),
-                                fppg=float(row["AvgPointsPerGame"])
-                            )
-                            players.append(player)
-                        except Exception as e:
-                            st.warning(f"Skipping player {row.get('Name', 'Unknown')} due to error: {e}")
-                    if not players:
-                        st.error("❌ No valid players loaded. Check CSV data.")
-                        raise ValueError("No valid players loaded.")
-                    optimizer.player_pool.load_players(players)
-                    
-                    # Fallback: Try loading players from CSV directly
-                    try:
-                        optimizer.load_players_from_csv(uploaded_file.name)
-                        st.info("✅ Loaded players from CSV as fallback.")
-                    except Exception as e:
-                        st.warning(f"Fallback CSV loading failed: {e}. Continuing with manually loaded players.")
-                    
-                    # Optimize
-                    lineups = []
-                    try:
-                        for lineup in optimizer.optimize(n=num_lineups, max_exposure=max_exposure):
-                            lineup_data = {
-                                "qb": "", "rb": "", "rb": "", "wr": "", "wr": "", "wr": "",
-                                "te": "", "flex": "", "dst": "", "Budget": 0, "FPPG": 0
-                            }
-                            players = lineup.players
-                            total_salary = sum(player.salary for player in players)
-                            total_points = sum(player.fppg for player in players)
-                            lineup_data["Budget"] = total_salary
-                            lineup_data["FPPG"] = total_points
-
-                            qb = [p for p in players if "QB" in p.positions]
-                            rbs = sorted([p for p in players if "RB" in p.positions], key=lambda x: x.salary, reverse=True)
-                            wrs = sorted([p for p in players if "WR" in p.positions], key=lambda x: x.salary, reverse=True)
-                            tes = sorted([p for p in players if "TE" in p.positions], key=lambda x: x.salary, reverse=True)
-                            dst = [p for p in players if "DST" in p.positions]
-
-                            if qb:
-                                lineup_data["qb"] = f"{qb[0].full_name} ({qb[0].id})"
-                            rb_slots = [k for k in lineup_data.keys() if k == "rb"]
-                            for i in range(min(2, len(rbs))):
-                                lineup_data[rb_slots[i]] = f"{rbs[i].full_name} ({rbs[i].id})"
-                            wr_slots = [k for k in lineup_data.keys() if k == "wr"]
-                            for i in range(min(3, len(wrs))):
-                                lineup_data[wr_slots[i]] = f"{wrs[i].full_name} ({wrs[i].id})"
-                            if tes:
-                                lineup_data["te"] = f"{tes[0].full_name} ({tes[0].id})"
-                            if dst:
-                                lineup_data["dst"] = f"{dst[0].full_name} ({dst[0].id})"
-                            if len(rbs) == 3:
-                                lineup_data["flex"] = f"{rbs[2].full_name} ({rbs[2].id})"
-                            elif len(wrs) == 4:
-                                lineup_data["flex"] = f"{wrs[3].full_name} ({wrs[3].id})"
-                            elif len(tes) == 2:
-                                lineup_data["flex"] = f"{tes[1].full_name} ({tes[1].id})"
-
-                            lineups.append(pd.DataFrame([lineup_data]))
-                    except Exception as e:
-                        st.error(f"❌ Optimization failed: {e}")
-                        raise
-                    
-                    df_wide = pd.concat(lineups, ignore_index=True)
-                    st.session_state["df_wide"] = df_wide
-                    st.session_state["salary_df"] = salary_df
-                    st.markdown("### Lineups (wide)")
-                    st.dataframe(df_wide.style.format({
-                        "Budget": "${:,.0f}",
-                        "FPPG": "{:.2f}"
-                    }))
-                    csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-                    st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
-                
-                # Diversify section
-                if "df_wide" in st.session_state and st.button("Diversify Lineups"):
-                    df_wide = st.session_state["df_wide"]
-                    salary_df = st.session_state["salary_df"]
-                    diversified = diversify_lineups_wide(
-                        df_wide,
-                        salary_df,
-                        max_exposure=max_exposure,
-                        max_pair_exposure=max_pair_exposure,
-                        salary_cap=salary_cap,
-                        salary_min=min_salary
-                    )
-                    st.markdown("### Diversified Lineups")
-                    if not diversified.empty:
-                        player_usage = Counter()
-                        for i in range(len(diversified)):
-                            for name in diversified[["qb", "rb", "rb", "wr", "wr", "wr", "te", "flex", "dst"]].iloc[i].values:
-                                if isinstance(name, str):
-                                    player_name = name.split(" (")[0]
-                                    player_usage[player_name] += 1
-                        
-                        st.dataframe(diversified.style.format({
-                            "Budget": "${:,.0f}",
-                            "FPPG": "{:.2f}"
-                        }))
-                        st.write("**Player Exposure:**")
-                        for name, count in player_usage.items():
-                            exposure = count / len(diversified) * 100
-                            if exposure > max_exposure * 100:
-                                st.warning(f"- {name}: {count}/{len(diversified)} lineups ({exposure:.1f}%) exceeds max exposure ({max_exposure*100:.1f}%)")
-                            else:
-                                st.write(f"- {name}: {count}/{len(diversified)} lineups ({exposure:.1f}%)")
-                        
-                        # Calculate pair exposure
-                        pair_usage = Counter()
-                        for i in range(len(diversified)):
-                            lineup_players = [
-                                diversified.iloc[i][col].split(" (")[0]
-                                for col in ["qb", "rb", "rb", "wr", "wr", "wr", "te", "flex", "dst"]
-                                if isinstance(diversified.iloc[i][col], str)
-                            ]
-                            for a in range(len(lineup_players)):
-                                for b in range(a + 1, len(lineup_players)):
-                                    pair_usage[tuple(sorted([lineup_players[a], lineup_players[b]]))] += 1
-                        
-                        st.write("**Pair Exposure:**")
-                        for pair, count in pair_usage.items():
-                            exposure = count / len(diversified) * 100
-                            if exposure > max_pair_exposure * 100:
-                                st.warning(f"- {pair[0]} + {pair[1]}: {count}/{len(diversified)} lineups ({exposure:.1f}%) exceeds max pair exposure ({max_pair_exposure*100:.1f}%)")
-                            else:
-                                st.write(f"- {pair[0]} + {pair[1]}: {count}/{len(diversified)} lineups ({exposure:.1f}%)")
-                        
-                        timestamp = pd.Timestamp.now().strftime('%Y-%m-%d')
-                        csv_bytes = diversified.to_csv(index=False).encode("utf-8")
-                        st.download_button("Download diversified CSV", csv_bytes, file_name=f"daily_lineups_{timestamp}.csv", mime="text/csv")
-                    else:
-                        st.error("❌ No valid lineups generated. Try relaxing constraints or checking CSV data.")
-    except Exception as e:
-        st.error(f"❌ Failed to read CSV: {e}")
-        print(f"CSV error: {e}")
-
+    csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
+    st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
