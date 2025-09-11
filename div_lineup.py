@@ -1,8 +1,9 @@
-# app.py
+# app.py WORKING
 import streamlit as st
 import pandas as pd
 import re
 from typing import Optional, Tuple, List
+
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
 
 st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
@@ -53,7 +54,7 @@ def guess_sport_from_positions(series: pd.Series) -> Optional[str]:
                   .astype(str)
                   .str.replace(' ', '')
                   .str.upper()
-                  .str.split('/')
+                  .str.split('/|,')
                   .explode()
                   .unique()
         )
@@ -118,7 +119,7 @@ except Exception as e:
 st.markdown("**Preview (first 10 rows):**")
 st.dataframe(df.head(10))
 
-# --- detect columns & site/sport ---
+# --- detect columns ---
 detected_site = guess_site_from_filename(getattr(uploaded_file, "name", None))
 id_col = find_column(df, ["id","playerid","player_id","ID"])
 name_plus_id_col = find_column(df, ["name + id","name+id","name_plus_id","name_id","nameandid"])
@@ -153,16 +154,6 @@ else:
 
 site, sport = SITE_MAP[site_choice]
 optimizer = get_optimizer(site, sport)
-
-# --- UI: additional options ---
-st.sidebar.header("Lineup Options")
-num_lineups = st.sidebar.slider("Number of lineups", 1, 50, 5)
-max_exposure = st.sidebar.slider("Max exposure per player", 0.0, 1.0, 0.3)
-max_repeating_players = st.sidebar.slider("Max repeating players across lineups", 0, 9, 3)
-stack_qb = st.sidebar.checkbox("Stack QB with WR/TE (NFL only)", value=False)
-
-optimizer.set_max_exposure(max_exposure)
-optimizer.set_max_repeating_players(max_repeating_players)
 
 # --- build players ---
 players = []
@@ -211,68 +202,65 @@ if len(players)==0: st.error("No valid players!"); st.stop()
 
 optimizer.player_pool.load_players(players)
 
-# --- generate lineups ---
+# --- lineup settings ---
+num_lineups = st.slider("Number of lineups", 1, 50, 5)
+max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
+max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
+optimizer.set_max_repeating_players(max_repeating_players)
+
 gen_btn = st.button("Generate lineups")
+
+# --- generate lineups ---
 if gen_btn:
-    with st.spinner("Generating..."):
-        try:
-            lineups = list(optimizer.optimize(n=num_lineups))
-            # --- enforce stacking ---
-            if stack_qb and sport==Sport.FOOTBALL:
-                stacked_lineups = []
-                for lineup in lineups:
-                    qb = next((p for p in lineup.players if 'QB' in p.positions), None)
-                    if qb:
-                        qb_team = qb.team
-                        has_team_wr_te = any(p.team==qb_team and ('WR' in p.positions or 'TE' in p.positions) for p in lineup.players if p!=qb)
-                        if not has_team_wr_te:
-                            continue
-                    stacked_lineups.append(lineup)
-                lineups = stacked_lineups
+    try:
+        with st.spinner("Generating..."):
+            lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
+        st.success(f"Generated {len(lineups)} lineup(s)")
+    except Exception as e:
+        st.error(f"Error generating lineups: {e}")
+        lineups = []
 
-            # --- convert to wide format ---
-            position_order = ["QB","RB","RB","WR","WR","WR","TE","FLEX","DST"]
-            wide_rows = []
-            for lineup in lineups:
-                row = {}
-                lineup_players = getattr(lineup,"players", None) or list(lineup)
-                pos_counts = {pos:0 for pos in position_order}
-                for p in lineup_players:
-                    assigned = False
-                    for pos in position_order:
-                        if pos in p.positions or (pos=="FLEX" and any(f in p.positions for f in ["RB","WR","TE"])):
-                            count = pos_counts[pos]
-                            key = pos if count==0 else pos
-                            if key not in row:
-                                row[key] = f"{player_display_name(p)}({p.id})"
-                                pos_counts[pos] += 1
-                                assigned = True
-                                break
-                    if not assigned:
-                        # assign to first empty slot
-                        for pos in position_order:
-                            if pos not in row:
-                                row[pos] = f"{player_display_name(p)}({p.id})"
-                                break
-                row["TotalSalary"] = sum([p.salary for p in lineup_players])
-                row["ProjectedPoints"] = sum([p.fppg for p in lineup_players])
-                wide_rows.append(row)
+    if lineups:
+        # --- map positions safely ---
+        position_columns = {
+            "QB": ["QB"],
+            "RB": ["RB", "RB1"],
+            "WR": ["WR", "WR1", "WR2"],
+            "TE": ["TE"],
+            "FLEX": ["FLEX"],
+            "DST": ["DST"]
+        }
 
-            df_wide = pd.DataFrame(wide_rows)
-            df_wide.sort_values("ProjectedPoints", ascending=False, inplace=True)
+        df_rows = []
+        for lineup in lineups:
+            row = {}
+            pos_counter = {k: 0 for k in position_columns.keys()}
+            for p in lineup.players:
+                assigned = False
+                for pos in p.positions or []:
+                    if pos in position_columns and pos_counter[pos] < len(position_columns[pos]):
+                        col = position_columns[pos][pos_counter[pos]]
+                        row[col] = f"{player_display_name(p)}({p.id})"
+                        pos_counter[pos] += 1
+                        assigned = True
+                        break
+                if not assigned:
+                    # assign to FLEX if available
+                    if pos_counter["FLEX"] < 1:
+                        row["FLEX"] = f"{player_display_name(p)}({p.id})"
+                        pos_counter["FLEX"] += 1
 
-            # Highlight top lineup
-            def highlight_top(s):
-                is_top = s.name == 0
-                return ['background-color: #b2fab4' if is_top else '' for v in s]
+            # ensure all columns exist
+            for col in ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]:
+                if col not in row: row[col] = ""
 
-            st.markdown("### Lineups (wide) — top lineup highlighted")
-            st.dataframe(df_wide.style.apply(highlight_top, axis=1))
+            row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
+            row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
+            df_rows.append(row)
 
-            csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-            st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+        df_wide = pd.DataFrame(df_rows)
+        st.markdown("### Lineups (wide)")
+        st.dataframe(df_wide)
 
-            st.success(f"Generated {len(lineups)} lineup(s)")
-
-        except Exception as e:
-            st.error(f"Error generating lineups: {e}")
+        csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
+        st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
