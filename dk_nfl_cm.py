@@ -1,15 +1,56 @@
-# dk_nfl_captain_mode.py
+# app_cm.py
 import streamlit as st
 import pandas as pd
 import re
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
+from typing import List, Optional, Tuple
 
-st.set_page_config(page_title="DraftKings Captain Mode Optimizer", layout="wide")
+st.set_page_config(page_title="DFS Captain Mode Optimizer", layout="wide")
+
+# --- Helpers ---
+def parse_salary(s) -> Optional[float]:
+    if pd.isna(s): return None
+    try:
+        return float(str(s).replace('$','').replace(',','').strip())
+    except:
+        return None
+
+def safe_float(x) -> Optional[float]:
+    try:
+        if pd.isna(x): return None
+        return float(x)
+    except:
+        try: return float(str(x).replace(',', '').strip())
+        except: return None
+
+def normalize_colname(c: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', c.lower())
+
+def find_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+    norm_map = {normalize_colname(c): c for c in df.columns}
+    for cand in candidates:
+        n = normalize_colname(cand)
+        if n in norm_map:
+            return norm_map[n]
+    return None
+
+def parse_name_and_id(val: str) -> Tuple[str, Optional[str]]:
+    s = str(val).strip()
+    m = re.match(r'^(.*?)\s*\((\d+)\)$', s)
+    if m:
+        return m.group(1).strip(), m.group(2)
+    return s, None
+
+def player_display_name(p) -> str:
+    return getattr(p, "full_name", f"{getattr(p,'first_name','')} {getattr(p,'last_name','')}").strip()
+
+# --- UI ---
 st.title("DFS Captain Mode Optimizer (DraftKings)")
+st.write("Upload DraftKings CSV salaries. Captain Mode only (1 CPT + 5 FLEX).")
 
-# --- Upload CSV ---
-uploaded_file = st.file_uploader("Upload DraftKings salary CSV", type=["csv"])
+uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
 if not uploaded_file:
+    st.info("Upload a DraftKings CSV for NFL/NBA Captain Mode.")
     st.stop()
 
 try:
@@ -18,88 +59,82 @@ except Exception as e:
     st.error(f"Could not read CSV: {e}")
     st.stop()
 
-st.markdown("### Preview")
+st.markdown("**Preview:**")
 st.dataframe(df.head(10))
 
-# --- Helpers ---
-def normalize_colname(c: str) -> str:
-    return re.sub(r'[^a-z0-9]', '', c.lower())
-
-def find_column(df: pd.DataFrame, candidates):
-    norm_map = {normalize_colname(c): c for c in df.columns}
-    for cand in candidates:
-        n = normalize_colname(cand)
-        if n in norm_map: return norm_map[n]
-    return None
-
 # --- Detect columns ---
-name_col = find_column(df, ["name","player"])
-salary_col = find_column(df, ["salary","salary_usd"])
-pos_col = find_column(df, ["position","positions","pos"])
-team_col = find_column(df, ["team","teamabbrev","team_abbrev"])
-fppg_col = find_column(df, ["fppg","projectedpoints","avgpointspergame"])
+name_plus_id_col = find_column(df, ["Name + ID","Name+ID","name_plus_id","name_id","nameandid"])
+salary_col = find_column(df, ["Salary","salary_usd"])
+fppg_col = find_column(df, ["AvgPointsPerGame","fppg","proj","projectedpoints"])
 
-# --- Load players ---
+if not all([name_plus_id_col, salary_col]):
+    st.error("Cannot find Name + ID or Salary column.")
+    st.stop()
+
+# --- Build player pool ---
 players = []
 skipped = 0
 for idx, row in df.iterrows():
     try:
-        player_id = f"p{idx}"
-        name = str(row[name_col])
-        first_name, last_name = (name.split(" ", 1) + [""])[:2]
-        positions = [str(row[pos_col]).strip()] if pos_col else ["FLEX"]  # ignore CPT/FLEX
-        team = str(row[team_col]) if team_col else None
-        salary = float(row[salary_col])
-        fppg = float(row[fppg_col]) if fppg_col else 0.0
-        players.append(Player(player_id, first_name, last_name, positions, team, salary, fppg))
+        full_name, player_id = parse_name_and_id(row[name_plus_id_col])
+        salary = parse_salary(row[salary_col])
+        fppg = safe_float(row[fppg_col]) if fppg_col else 0.0
+        if salary is None: 
+            skipped += 1
+            continue
+        players.append(Player(
+            player_id or f"r{idx}",
+            full_name.split(" ")[0],
+            " ".join(full_name.split(" ")[1:]),
+            positions=["FLEX"],  # <- All FLEX
+            team=None,
+            salary=salary,
+            fppg=fppg
+        ))
     except:
         skipped += 1
         continue
 
 st.write(f"Loaded {len(players)} players (skipped {skipped})")
-if len(players) == 0:
-    st.error("No valid players!")
+if len(players) < 6:
+    st.error("Not enough players for Captain Mode (need at least 6).")
     st.stop()
 
-# --- Initialize optimizer ---
-optimizer = get_optimizer(Site.DRAFTKINGS_CAPTAIN_MODE, Sport.FOOTBALL)
+# --- Optimizer ---
+optimizer = get_optimizer(Site.DRAFTKINGS, Sport.FOOTBALL)
 optimizer.player_pool.load_players(players)
 
-# --- Lineup settings ---
 num_lineups = st.slider("Number of lineups", 1, 50, 5)
-max_repeating_players = st.slider("Max repeating players across lineups", 0, 10, 3)
+max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
 optimizer.set_max_repeating_players(max_repeating_players)
 
-gen_btn = st.button("Generate Lineups")
+gen_btn = st.button("Generate lineups")
 
 # --- Generate lineups ---
 if gen_btn:
     try:
         with st.spinner("Generating lineups..."):
             lineups = list(optimizer.optimize(n=num_lineups))
-
         st.success(f"Generated {len(lineups)} lineup(s)")
-
-        # --- Format output ---
-        df_lineups = []
-        for lineup in lineups:
-            row = {}
-            # Captain
-            row["Captain"] = getattr(lineup.captain, "full_name", str(lineup.captain))
-            # FLEX (all other players)
-            for idx, p in enumerate(lineup.players):
-                col = f"FLEX{idx+1}"
-                row[col] = f"{getattr(p,'full_name', str(p))}({getattr(p,'id','')})"
-            row["TotalSalary"] = sum([getattr(p,"salary",0) for p in lineup.players])
-            row["ProjectedPoints"] = sum([getattr(p,"fppg",0) for p in lineup.players])
-            df_lineups.append(row)
-
-        df_lineups = pd.DataFrame(df_lineups)
-        st.markdown("### Generated Lineups")
-        st.dataframe(df_lineups)
-
-        csv_bytes = df_lineups.to_csv(index=False).encode("utf-8")
-        st.download_button("Download Lineups CSV", csv_bytes, file_name="captain_mode_lineups.csv", mime="text/csv")
-
     except Exception as e:
         st.error(f"Error generating lineups: {e}")
+        st.stop()
+
+    # --- Convert to DataFrame ---
+    df_rows = []
+    for lineup in lineups:
+        row = {}
+        row["Captain"] = player_display_name(lineup.captain)
+        flex_players = [p for p in lineup.players if p != lineup.captain]
+        for i, p in enumerate(flex_players, start=1):
+            row[f"FLEX{i}"] = player_display_name(p)
+        row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
+        row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
+        df_rows.append(row)
+
+    df_lineups = pd.DataFrame(df_rows)
+    st.markdown("### Generated Lineups")
+    st.dataframe(df_lineups)
+
+    csv_bytes = df_lineups.to_csv(index=False).encode("utf-8")
+    st.download_button("Download lineups CSV", csv_bytes, file_name="lineups_cm.csv", mime="text/csv")
