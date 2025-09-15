@@ -271,18 +271,16 @@ for idx,row in df.iterrows():
         salary = parse_salary(row[salary_col]) if salary_col else None
         fppg = safe_float(row[fppg_col]) if fppg_col else None
         from pydfs_lineup_optimizer.players import Game
-
-raw_game_info = str(row[game_info_col]).strip() if game_info_col and not pd.isna(row[game_info_col]) else None
-game_info = None
-
-if raw_game_info:
-    try:
-        m = re.match(r"(\w+)@(\w+)", raw_game_info)
+        raw_game_info = str(row[game_info_col]).strip() if game_info_col and not pd.isna(row[game_info_col]) else None
+        game_info = None
+        if raw_game_info:
+        try:
+            m = re.match(r"(\w+)@(\w+)", raw_game_info)
         if m:
             away, home = m.groups()
             game_info = Game(home_team=home.strip(), away_team=away.strip())
-    except:
-        game_info = None  # fallback if parsing fails
+        except:
+            game_info = None  # fallback if parsing fails
 
 players.append(Player(
     player_id=player_id,
@@ -383,4 +381,5 @@ if gen_btn:
         st.markdown("### Export CSV")
         csv = lineup_df.to_csv(index=False)
         st.download_button("Download Lineups CSV", data=csv, file_name="dfs_lineups.csv", mime="text/csv")
+
 
