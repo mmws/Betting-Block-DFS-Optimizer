@@ -35,11 +35,9 @@ if uploaded_file is not None:
     st.sidebar.header("Optimizer Settings")
     num_lineups = st.sidebar.slider("Number of Lineups", min_value=1, max_value=100, value=50)
     min_salary = st.sidebar.number_input("Minimum Salary Cap", min_value=40000, max_value=50000, value=49000)
-    max_exposure = st.sidebar.slider("Max Player Exposure", min_value=0.1, max_value=1.0, value=0.5, step=0.05)
     
     # Apply settings
     optimizer.set_min_salary_cap(min_salary)
-    optimizer.set_max_exposure(max_exposure)
     
     # Stacking and restriction rules
     optimizer.restrict_positions_for_same_team(('RB', 'RB'))
