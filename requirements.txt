@@ -1,6 +1,8 @@
 pandas
 streamlit
 pydfs-lineup-optimizer
+PuLP==2.4
+
 
 
 
