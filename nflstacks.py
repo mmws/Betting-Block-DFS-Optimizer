@@ -2,11 +2,14 @@ import streamlit as st
 import pandas as pd
 from pydfs_lineup_optimizer import Site, Sport, get_optimizer, AfterEachExposureStrategy, PositionsStack, TeamStack
 import datetime
-import io
+import os
 
 # Streamlit app configuration
 st.set_page_config(page_title="DFS Lineup Optimizer", layout="wide")
 st.title("DraftKings NFL Lineup Optimizer")
+
+# Initialize temp_file as None
+temp_file = None
 
 # File uploader for CSV
 uploaded_file = st.file_uploader("Upload Week 3 Salaries CSV", type="csv")
@@ -80,7 +83,6 @@ if uploaded_file is not None:
 else:
     st.info("Please upload a CSV file with player salaries to start.")
 
-# Clean up temporary file
-import os
-if os.path.exists(temp_file):
+# Clean up temporary file if it exists
+if temp_file is not None and os.path.exists(temp_file):
     os.remove(temp_file)
