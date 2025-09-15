@@ -367,7 +367,7 @@ else:
     opp_stack = False
 
 optimizer.set_min_salary_cap(min_salary)
-optimizer.restrict_max_players_from_team(max_players_per_team)
+optimizer.set_max_players_from_team(max_players_per_team)
 optimizer.set_max_repeating_players(max_repeating_players)
 if qb_stack:
     optimizer.add_stack(PositionsStack(('QB', 'WR')))
