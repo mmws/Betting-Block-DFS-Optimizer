@@ -6,8 +6,8 @@ import tempfile
 import os
 from typing import Optional, Tuple, List
 from collections import Counter
-from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, AfterEachExposureStrategy
-from pydfs_lineup_optimizer.stacks import PositionsStack, GameStack, TeamStack
+from pydfs_lineup_optimizer import get_optimizer, Site, Sport, AfterEachExposureStrategy
+from pydfs_lineup_optimizer.stacks import PositionsStack, TeamStack
 from pydfs_lineup_optimizer.fantasy_points_strategy import RandomFantasyPointsStrategy
 
 st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
@@ -70,32 +70,6 @@ def guess_sport_from_positions(series: pd.Series) -> Optional[str]:
         pass
     return None
 
-def parse_name_and_id_from_field(val: str) -> Tuple[str, Optional[str]]:
-    s = str(val).strip()
-    m = re.match(r'^(.*?)\s*\((\d+)\)\s*$', s)
-    if m: return m.group(1).strip(), m.group(2)
-    m = re.match(r'^(.*?)\s*[-\|\/]\s*(\d+)\s*$', s)
-    if m: return m.group(1).strip(), m.group(2)
-    m = re.match(r'^(.*\D)\s+(\d+)\s*$', s)
-    if m: return m.group(1).strip(), m.group(2)
-    return s, None
-
-def parse_salary(s) -> Optional[float]:
-    if pd.isna(s): return None
-    try:
-        t = str(s).replace('$','').replace(',','').strip()
-        if t == '': return None
-        return float(t)
-    except: return None
-
-def safe_float(x) -> Optional[float]:
-    try:
-        if pd.isna(x): return None
-        return float(x)
-    except:
-        try: return float(str(x).replace(',', '').strip())
-        except: return None
-
 def player_display_name(p) -> str:
     fn = getattr(p, "first_name", None)
     ln = getattr(p, "last_name", None)
@@ -107,7 +81,7 @@ def player_display_name(p) -> str:
 # --- Diversification Logic ---
 def diversify_lineups_wide(
     df_wide, salary_df,
-    max_exposure=0.4,
+    max_exposure=0.3,
     max_pair_exposure=0.6,
     randomness=0.15,
     salary_cap=50000,
@@ -235,11 +209,11 @@ def diversify_lineups_wide(
 
 # --- UI ---
 st.title("The Betting Block DFS Optimizer")
-st.write("Upload a salary CSV exported from DraftKings or FanDuel (NFL/NBA).")
+st.write("Upload a salary CSV exported from DraftKings (e.g., Week_3_Salaries.csv).")
 uploaded_file = st.file_uploader("Upload salary CSV", type=["csv"])
 
 if not uploaded_file:
-    st.info("Upload a CSV (e.g. `Week_3_Salaries.csv`). The app will try to auto-detect site & sport.")
+    st.info("Upload a CSV (e.g., `Week_3_Salaries.csv`) with headers: Position, Name + ID, Name, ID, Roster Position, Salary, Game Info, TeamAbbrev, AvgPointsPerGame.")
     st.stop()
 
 try:
@@ -255,6 +229,9 @@ st.dataframe(df.head(10))
 detected_site = guess_site_from_filename(getattr(uploaded_file, "name", None))
 pos_col = find_column(df, ["position", "positions", "pos", "roster position", "rosterposition", "roster_pos"])
 game_info_col = find_column(df, ["game info", "gameinfo", "game"])
+name_col = find_column(df, ["name", "full_name", "player"])
+team_col = find_column(df, ["team", "teamabbrev", "team_abbrev", "teamabbr"])
+fppg_col = find_column(df, ["avgpointspergame", "avgpoints", "fppg", "projectedpoints", "proj"])
 
 guessed_sport = guess_sport_from_positions(df[pos_col]) if pos_col else None
 auto_choice = f"{detected_site} {guessed_sport}" if detected_site and guessed_sport and f"{detected_site} {guessed_sport}" in SITE_MAP else None
@@ -264,6 +241,7 @@ st.write({
     "detected_site": detected_site,
     "pos_column": pos_col,
     "guessed_sport": guessed_sport,
+    "name_column": name_col,
 })
 
 site_choice = None
@@ -299,16 +277,15 @@ with col1:
     max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
 with col2:
     min_salary = st.number_input("Minimum Salary", value=49000, step=500)
-    game_stack_size = st.slider("Game Stack Size (Players)", 0, 5, 3)
 
-use_advanced_constraints = st.checkbox("Use Advanced Constraints (QB+WR Stack, No Two RBs, DST Restrictions, WR Opp Stack)", value=True)
+use_advanced_constraints = st.checkbox("Use Advanced Constraints (QB+WR/RB Stack, No Two RBs, DST Restrictions, QB+WR/RB Opp Stack)", value=True)
 if use_advanced_constraints:
     col3, col4 = st.columns(2)
     with col3:
-        qb_stack = st.checkbox("QB + WR Stack", value=True)
+        qb_stack = st.checkbox("QB + WR/RB Stack", value=True)
     with col4:
         no_two_rbs = st.checkbox("No Two RBs from Same Team", value=True)
-        opp_stack = st.checkbox("WR Opposing Team Bringback", value=True)
+        opp_stack = st.checkbox("QB + WR/RB Opposing Team Bringback", value=True)
         dst_restrictions = st.checkbox("Restrict DST vs QB/WR/RB/TE", value=True)
 else:
     qb_stack = False
@@ -317,19 +294,19 @@ else:
     dst_restrictions = False
 
 optimizer.set_min_salary_cap(min_salary)
-optimizer.set_max_repeating_players(2)
+optimizer.set_max_repeating_players(3)
 if qb_stack:
     optimizer.add_stack(PositionsStack(('QB', 'WR')))
+    optimizer.add_stack(PositionsStack(('QB', 'RB')))
 if no_two_rbs:
     for team in df["TeamAbbrev"].unique():
         optimizer.restrict_positions_for_same_team(('RB', 'RB'))
 if opp_stack:
-    optimizer.force_positions_for_opposing_team(('WR', 'WR'))
+    optimizer.force_positions_for_opposing_team(('QB', 'WR'))
+    optimizer.force_positions_for_opposing_team(('QB', 'RB'))
 if dst_restrictions:
     optimizer.restrict_positions_for_opposing_team(['DST'], ['QB', 'WR', 'RB', 'TE'])
-if game_stack_size > 0:
-    optimizer.add_stack(GameStack(game_stack_size))
-    optimizer.add_stack(TeamStack(3))
+optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'TE']))
 optimizer.set_fantasy_points_strategy(RandomFantasyPointsStrategy(max_deviation=0.05))
 
 # --- Generate lineups ---
