@@ -1,4 +1,6 @@
-pandas==2.2.2 streamlit==1.38.0 pydfs-lineup-optimizer==3.5.0 PuLP==2.4 numpy==1.26.4
+pandas
+streamlit
+pydfs-lineup-optimizer
 
 
 
