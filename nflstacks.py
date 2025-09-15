@@ -4,11 +4,9 @@ import re
 import random
 from typing import Optional, Tuple, List
 from collections import Counter
-from datetime import datetime
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, AfterEachExposureStrategy
-from pydfs_lineup_optimizer.stacks import PositionsStack, GameStack
+from pydfs_lineup_optimizer.stacks import PositionsStack, GameStack, TeamStack
 from pydfs_lineup_optimizer.fantasy_points_strategy import RandomFantasyPointsStrategy
-from pydfs_lineup_optimizer.lineup_importer import Game
 
 st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
 
@@ -96,21 +94,6 @@ def safe_float(x) -> Optional[float]:
         try: return float(str(x).replace(',', '').strip())
         except: return None
 
-def parse_game_info(game_info: str) -> Optional[Game]:
-    if not game_info or pd.isna(game_info):
-        return None
-    try:
-        # Parse format like "CIN@CLE 09/07/2025 01:00PM ET"
-        match = re.match(r'(\w+)@(\w+)\s+(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}(?:AM|PM)\s+ET)', str(game_info))
-        if not match:
-            return None
-        away_team, home_team, date_time = match.groups()
-        # Convert date/time to datetime object
-        starts_at = datetime.strptime(date_time, '%m/%d/%Y %I:%M%p ET')
-        return Game(home_team=home_team, away_team=away_team, starts_at=starts_at)
-    except Exception:
-        return None
-
 def player_display_name(p) -> str:
     fn = getattr(p, "first_name", None)
     ln = getattr(p, "last_name", None)
@@ -126,7 +109,7 @@ def diversify_lineups_wide(
     max_pair_exposure=0.6,
     randomness=0.15,
     salary_cap=50000,
-    salary_min=49500
+    salary_min=49000
 ):
     diversified = df_wide.copy()
     total_lineups = len(diversified)
@@ -268,15 +251,7 @@ st.dataframe(df.head(10))
 
 # --- Detect columns ---
 detected_site = guess_site_from_filename(getattr(uploaded_file, "name", None))
-id_col = find_column(df, ["id", "playerid", "player_id", "ID"])
-name_plus_id_col = find_column(df, ["name + id", "name+id", "name_plus_id", "name_id", "nameandid"])
-name_col = find_column(df, ["name", "full_name", "player"])
-first_col = find_column(df, ["first_name", "firstname", "first"])
-last_col = find_column(df, ["last_name", "lastname", "last"])
 pos_col = find_column(df, ["position", "positions", "pos", "roster position", "rosterposition", "roster_pos"])
-salary_col = find_column(df, ["salary", "salary_usd"])
-team_col = find_column(df, ["team", "teamabbrev", "team_abbrev", "teamabbr"])
-fppg_col = find_column(df, ["avgpointspergame", "avgpoints", "fppg", "projectedpoints", "proj"])
 game_info_col = find_column(df, ["game info", "gameinfo", "game"])
 
 guessed_sport = guess_sport_from_positions(df[pos_col]) if pos_col else None
@@ -287,8 +262,6 @@ st.write({
     "detected_site": detected_site,
     "pos_column": pos_col,
     "guessed_sport": guessed_sport,
-    "name_column": name_col or name_plus_id_col,
-    "id_column": id_col,
 })
 
 site_choice = None
@@ -302,61 +275,13 @@ else:
 site, sport = SITE_MAP[site_choice]
 optimizer = get_optimizer(site, sport)
 
-# --- Build players ---
-players = []
-skipped = 0
-for idx, row in df.iterrows():
-    try:
-        player_id = str(row[id_col]).strip() if id_col and not pd.isna(row[id_col]) else None
-        if not player_id and name_plus_id_col:
-            _, player_id = parse_name_and_id_from_field(row[name_plus_id_col])
-        if not player_id: player_id = f"r{idx}"
-        if first_col and last_col:
-            first_name = str(row[first_col]).strip()
-            last_name = str(row[last_col]).strip()
-        elif name_col:
-            parts = str(row[name_col]).split(" ", 1)
-            first_name = parts[0].strip()
-            last_name = parts[1].strip() if len(parts) > 1 else "" if row[pos_col] != "DST" else row[name_col]
-        elif name_plus_id_col:
-            parsed_name, _ = parse_name_and_id_from_field(row[name_plus_id_col])
-            parts = parsed_name.split(" ", 1)
-            first_name = parts[0].strip()
-            last_name = parts[1].strip() if len(parts) > 1 else "" if row[pos_col] != "DST" else parsed_name
-        else:
-            first_name = str(row.get(name_col, f"Player{idx}"))
-            last_name = ""
-        raw_pos = str(row[pos_col]).strip() if pos_col and not pd.isna(row[pos_col]) else None
-        positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
-        team = str(row[team_col]).strip() if team_col and not pd.isna(row[team_col]) else None
-        salary = parse_salary(row[salary_col]) if salary_col else None
-        fppg = safe_float(row[fppg_col]) if fppg_col else None
-        game_info = parse_game_info(row[game_info_col]) if game_info_col and not pd.isna(row[game_info_col]) else None
-        if salary is None or not team or not positions:
-            st.warning(f"Skipping player {row.get(name_col, 'Unknown')}: Missing salary, team, or positions.")
-            skipped += 1
-            continue
-        players.append(Player(
-            player_id=player_id,
-            first_name=first_name,
-            last_name=last_name,
-            positions=positions,
-            team=team,
-            salary=salary,
-            fppg=fppg or 0.0,
-            game_info=game_info
-        ))
-    except Exception as e:
-        st.warning(f"Skipping player {row.get(name_col, 'Unknown')} due to error: {e}")
-        skipped += 1
-        continue
-
-st.write(f"Loaded {len(players)} players (skipped {skipped})")
-if len(players) == 0:
-    st.error("No valid players loaded! Check CSV data.")
+# --- Load players ---
+try:
+    optimizer.load_players_from_csv(uploaded_file.name)
+    st.write(f"Loaded {len(optimizer.player_pool.players)} players")
+except Exception as e:
+    st.error(f"Failed to load players from CSV: {e}")
     st.stop()
-
-optimizer.player_pool.load_players(players)
 
 # --- Lineup settings ---
 st.markdown("### Lineup Settings")
@@ -364,40 +289,39 @@ col1, col2 = st.columns(2)
 with col1:
     num_lineups = st.slider("Number of lineups", 1, 200, 10)
     max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-    max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
 with col2:
-    min_salary = st.number_input("Minimum Salary", value=49500, step=500)
+    min_salary = st.number_input("Minimum Salary", value=49000, step=500)
     game_stack_size = st.slider("Game Stack Size (Players)", 0, 5, 3)
 
-use_advanced_constraints = st.checkbox("Use Advanced Constraints (QB+WR/TE/RB Stack, No Two RBs, WR/TE/RB Opp Stack)", value=True)
+use_advanced_constraints = st.checkbox("Use Advanced Constraints (QB+WR Stack, No Two RBs, DST Restrictions, WR Opp Stack)", value=True)
 if use_advanced_constraints:
     col3, col4 = st.columns(2)
     with col3:
-        qb_stack = st.checkbox("QB + WR/TE/RB Stack", value=True)
+        qb_stack = st.checkbox("QB + WR Stack", value=True)
     with col4:
         no_two_rbs = st.checkbox("No Two RBs from Same Team", value=True)
-        opp_stack = st.checkbox("WR/TE/RB Opposing Team Bringback", value=True)
+        opp_stack = st.checkbox("WR Opposing Team Bringback", value=True)
+        dst_restrictions = st.checkbox("Restrict DST vs QB/WR/RB/TE", value=True)
 else:
     qb_stack = False
     no_two_rbs = False
     opp_stack = False
+    dst_restrictions = False
 
 optimizer.set_min_salary_cap(min_salary)
-optimizer.set_max_repeating_players(max_repeating_players)
+optimizer.set_max_repeating_players(2)
 if qb_stack:
     optimizer.add_stack(PositionsStack(('QB', 'WR')))
-    optimizer.add_stack(PositionsStack(('QB', 'TE')))
-    optimizer.add_stack(PositionsStack(('QB', 'RB')))
 if no_two_rbs:
     for team in df["TeamAbbrev"].unique():
         optimizer.restrict_positions_for_same_team(('RB', 'RB'))
 if opp_stack:
     optimizer.force_positions_for_opposing_team(('WR', 'WR'))
-    optimizer.force_positions_for_opposing_team(('WR', 'TE'))
-    optimizer.force_positions_for_opposing_team(('WR', 'RB'))
+if dst_restrictions:
+    optimizer.restrict_positions_for_opposing_team(['DST'], ['QB', 'WR', 'RB', 'TE'])
 if game_stack_size > 0:
     optimizer.add_stack(GameStack(game_stack_size))
-    optimizer.add_stack(GameStack(5, min_from_team=2))
+    optimizer.add_stack(TeamStack(3))
 optimizer.set_fantasy_points_strategy(RandomFantasyPointsStrategy(max_deviation=0.05))
 
 # --- Generate lineups ---
