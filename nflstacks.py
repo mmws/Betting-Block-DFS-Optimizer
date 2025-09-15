@@ -4,7 +4,7 @@ import re
 import random
 from typing import Optional, Tuple, List
 from collections import Counter
-from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, AfterEachExposureStrategy
+from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, AfterEachExposureStrategy, GameInfo
 from pydfs_lineup_optimizer.stacks import PositionsStack, GameStack, TeamStack
 from pydfs_lineup_optimizer.fantasy_points_strategy import RandomFantasyPointsStrategy
 
@@ -102,89 +102,15 @@ def player_display_name(p) -> str:
     if full: return full
     return str(p)
 
-# --- Diversification logic ---
-def diversify_lineups_wide(df_wide, salary_df, max_exposure=0.4, max_pair_exposure=0.6,
-                           randomness=0.15, salary_cap=50000, salary_min=49500):
-    diversified = df_wide.copy()
-    total_lineups = len(diversified)
-    player_info = {}
-    for _, row in salary_df.iterrows():
-        try:
-            fppg = float(row.get("AvgPointsPerGame", 0))
-            if fppg < 0: fppg = 0
-            player_info[row["Name"]] = {
-                "team": str(row.get("TeamAbbrev", "")),
-                "salary": float(row.get("Salary", 0)),
-                "fppg": fppg,
-                "position": str(row.get("Position", ""))
-            }
-        except: continue
-    exposure = Counter()
-    pair_exposure = Counter()
-    for i in range(total_lineups):
-        lineup_players = []
-        for col in diversified.columns:
-            if col in ["TotalSalary", "ProjectedPoints"]: continue
-            val = diversified.at[i, col]
-            if isinstance(val, str):
-                name = val.split("(")[0].strip()
-                if name in player_info:
-                    exposure[name] += 1
-                    lineup_players.append(name)
-        for a in range(len(lineup_players)):
-            for b in range(a + 1, len(lineup_players)):
-                pair_exposure[tuple(sorted([lineup_players[a], lineup_players[b]]))] += 1
-    # Diversify
-    for lineup_idx in range(total_lineups):
-        lineup_players = [
-            diversified.at[lineup_idx, c].split("(")[0].strip()
-            for c in diversified.columns
-            if c not in ["TotalSalary", "ProjectedPoints"] and isinstance(diversified.at[lineup_idx, c], str)
-            and diversified.at[lineup_idx, c].split("(")[0].strip() in player_info
-        ]
-        for col in diversified.columns:
-            if col in ["TotalSalary", "ProjectedPoints"]: continue
-            val = diversified.at[lineup_idx, col]
-            if not isinstance(val, str): continue
-            name = val.split("(")[0].strip()
-            if name not in player_info: continue
-            player_exp = exposure[name] / total_lineups
-            lineup_pairs = [tuple(sorted([name, p])) for p in lineup_players if p != name]
-            pair_flags = [pair_exposure[pair] / total_lineups > max_pair_exposure for pair in lineup_pairs]
-            if player_exp > max_exposure or any(pair_flags):
-                if random.random() < randomness:
-                    current_pos = player_info[name]["position"]
-                    possible_replacements = [p for p in player_info.keys() if p != name and player_info[p]["position"] == current_pos]
-                    random.shuffle(possible_replacements)
-                    for candidate in possible_replacements:
-                        temp_lineup = diversified.loc[lineup_idx].copy()
-                        temp_lineup[col] = f"{candidate} ({player_info[candidate]['team']})"
-                        lineup_salary, lineup_points = 0, 0
-                        temp_players = []
-                        pos_counts = {"QB":0,"RB":0,"WR":0,"TE":0,"DST":0}
-                        for pos in diversified.columns:
-                            if pos in ["TotalSalary","ProjectedPoints"]: continue
-                            val2 = temp_lineup[pos]
-                            if isinstance(val2,str):
-                                nm = val2.split("(")[0].strip()
-                                if nm in player_info:
-                                    temp_players.append(nm)
-                                    lineup_salary += player_info[nm]["salary"]
-                                    lineup_points += player_info[nm]["fppg"]
-                                    pos_counts[player_info[nm]["position"]] += 1
-                        valid_positions = (pos_counts["QB"]==1 and 2<=pos_counts["RB"]<=3 and 3<=pos_counts["WR"]<=4 and pos_counts["TE"]==1 and pos_counts["DST"]==1)
-                        if salary_min <= lineup_salary <= salary_cap and valid_positions:
-                            new_pairs = [tuple(sorted([a,b])) for i,a in enumerate(temp_players) for b in temp_players[i+1:]]
-                            if all((pair_exposure[pair]+1)/total_lineups <= max_pair_exposure for pair in new_pairs):
-                                diversified.loc[lineup_idx, col] = f"{candidate} ({player_info[candidate]['team']})"
-                                diversified.at[lineup_idx,"TotalSalary"] = lineup_salary
-                                diversified.at[lineup_idx,"ProjectedPoints"] = lineup_points
-                                exposure[name] -= 1
-                                exposure[candidate] += 1
-                                for pair in lineup_pairs: pair_exposure[pair] -=1
-                                for pair in new_pairs: pair_exposure[pair] +=1
-                                break
-    return diversified
+def parse_game_info(val: Optional[str]) -> Optional[GameInfo]:
+    if not val or not isinstance(val, str):
+        return None
+    # Expected format: "CHI@DET 09/14/2025 01:00PM ET"
+    m = re.match(r'([A-Z]+)@([A-Z]+)', val)
+    if m:
+        home, away = m.group(2), m.group(1)
+        return GameInfo(home_team=home, away_team=away)
+    return None
 
 # --- UI ---
 st.title("The Betting Block DFS Optimizer")
@@ -270,28 +196,14 @@ for idx,row in df.iterrows():
         team = str(row[team_col]).strip() if team_col and not pd.isna(row[team_col]) else None
         salary = parse_salary(row[salary_col]) if salary_col else None
         fppg = safe_float(row[fppg_col]) if fppg_col else None
-        from pydfs_lineup_optimizer.players import Game
-        raw_game_info = str(row[game_info_col]).strip() if game_info_col and not pd.isna(row[game_info_col]) else None
-        game_info = None
-        if raw_game_info:
-        try:
-            m = re.match(r"(\w+)@(\w+)", raw_game_info)
-        if m:
-            away, home = m.groups()
-            game_info = Game(home_team=home.strip(), away_team=away.strip())
-        except:
-            game_info = None  # fallback if parsing fails
-
-players.append(Player(
-    player_id=player_id,
-    first_name=first_name,
-    last_name=last_name,
-    positions=positions,
-    team=team,
-    salary=salary,
-    fppg=fppg or 0.0,
-    game_info=game_info
-))
+        game_info_raw = str(row[game_info_col]).strip() if game_info_col and not pd.isna(row[game_info_col]) else None
+        game_info = parse_game_info(game_info_raw)
+        if salary is None or not team or not positions:
+            skipped +=1
+            continue
+        players.append(Player(player_id=player_id, first_name=first_name, last_name=last_name,
+                              positions=positions, team=team, salary=salary, fppg=fppg or 0.0,
+                              game_info=game_info))
     except: skipped+=1; continue
 
 st.write(f"Loaded {len(players)} players (skipped {skipped})")
@@ -332,8 +244,7 @@ if qb_stack:
     optimizer.add_stack(PositionsStack(('QB','TE')))
     optimizer.add_stack(PositionsStack(('QB','RB')))
 if no_two_rbs:
-    for team in df["TeamAbbrev"].unique():
-        optimizer.restrict_positions_for_same_team(('RB','RB'))
+    optimizer.restrict_positions_for_same_team(('RB','RB'))
 if opp_stack:
     optimizer.force_positions_for_opposing_team(('WR','WR'))
     optimizer.force_positions_for_opposing_team(('WR','TE'))
@@ -381,5 +292,3 @@ if gen_btn:
         st.markdown("### Export CSV")
         csv = lineup_df.to_csv(index=False)
         st.download_button("Download Lineups CSV", data=csv, file_name="dfs_lineups.csv", mime="text/csv")
-
-
