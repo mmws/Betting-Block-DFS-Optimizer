@@ -4,10 +4,9 @@ import re
 import random
 from typing import Optional, Tuple, List
 from collections import Counter
-from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, PositionsStack
-from pydfs_lineup_optimizer.stacks import GameStack
+from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, AfterEachExposureStrategy
+from pydfs_lineup_optimizer.stacks import PositionsStack, GameStack
 from pydfs_lineup_optimizer.fantasy_points_strategy import RandomFantasyPointsStrategy
-from pydfs_lineup_optimizer.exposure_strategy import AfterEachExposureStrategy
 
 st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
 
@@ -346,7 +345,7 @@ optimizer.player_pool.load_players(players)
 st.markdown("### Lineup Settings")
 col1, col2 = st.columns(2)
 with col1:
-    num_lineups = st.slider("Number of lineups", 1, 200, 5)
+    num_lineups = st.slider("Number of lineups", 1, 200, 10)
     max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
     max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
 with col2:
@@ -354,7 +353,7 @@ with col2:
     max_players_per_team = st.number_input("Max Players per Team", value=4, step=1)
     game_stack_size = st.slider("Game Stack Size (Players)", 0, 5, 0)
 
-use_advanced_constraints = st.checkbox("Use Advanced Constraints (QB+WR/TE/RB Stack, No Two RBs, WR+WR/TE/RB Opp Stack)", value=True)
+use_advanced_constraints = st.checkbox("Use Advanced Constraints (QB+WR/TE/RB Stack, No Two RBs, WR/TE/RB Opp Stack)", value=True)
 if use_advanced_constraints:
     col3, col4 = st.columns(2)
     with col3:
@@ -368,7 +367,8 @@ else:
     opp_stack = False
 
 optimizer.set_min_salary_cap(min_salary)
-optimizer.set_max_players_from_team(max_players_per_team)
+optimizer.restrict_max_players_from_team(max_players_per_team)
+optimizer.set_max_repeating_players(max_repeating_players)
 if qb_stack:
     optimizer.add_stack(PositionsStack(('QB', 'WR')))
     optimizer.add_stack(PositionsStack(('QB', 'TE')))
@@ -383,7 +383,6 @@ if opp_stack:
 if game_stack_size > 0:
     optimizer.add_stack(GameStack(game_stack_size))
 optimizer.set_fantasy_points_strategy(RandomFantasyPointsStrategy(max_deviation=0.05))
-optimizer.set_max_repeating_players(max_repeating_players)
 
 # --- Generate lineups ---
 gen_btn = st.button("Generate Lineups")
@@ -492,7 +491,7 @@ if "df_wide" in st.session_state and st.button("Diversify Lineups"):
         st.write("**Pair Exposure:**")
         for pair, count in pair_usage.items():
             exposure = count / len(diversified) * 100
-            if exposure > 60:  # Hardcode 60% as per your previous setting
+            if exposure > 60:
                 st.warning(f"- {pair[0]} + {pair[1]}: {count}/{len(diversified)} lineups ({exposure:.1f}%) exceeds max pair exposure (60.0%)")
             else:
                 st.write(f"- {pair[0]} + {pair[1]}: {count}/{len(diversified)} lineups ({exposure:.1f}%)")
