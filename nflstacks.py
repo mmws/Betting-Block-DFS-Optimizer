@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import re
 import random
+import tempfile
+import os
 from typing import Optional, Tuple, List
 from collections import Counter
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, AfterEachExposureStrategy
@@ -237,7 +239,7 @@ st.write("Upload a salary CSV exported from DraftKings or FanDuel (NFL/NBA).")
 uploaded_file = st.file_uploader("Upload salary CSV", type=["csv"])
 
 if not uploaded_file:
-    st.info("Upload a CSV (e.g. `DKSalaries.csv`). The app will try to auto-detect site & sport.")
+    st.info("Upload a CSV (e.g. `Week_3_Salaries.csv`). The app will try to auto-detect site & sport.")
     st.stop()
 
 try:
@@ -277,8 +279,14 @@ optimizer = get_optimizer(site, sport)
 
 # --- Load players ---
 try:
-    optimizer.load_players_from_csv(uploaded_file.name)
+    # Save uploaded file to temporary path
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_file:
+        tmp_file.write(uploaded_file.getvalue())
+        tmp_file_path = tmp_file.name
+    optimizer.load_players_from_csv(tmp_file_path)
     st.write(f"Loaded {len(optimizer.player_pool.players)} players")
+    # Clean up temporary file
+    os.unlink(tmp_file_path)
 except Exception as e:
     st.error(f"Failed to load players from CSV: {e}")
     st.stop()
