@@ -14,7 +14,7 @@ st.title("DraftKings NFL Lineup Optimizer")
 temp_file = None
 
 # File uploader for CSV
-uploaded_file = st.file_uploader("Upload Week 3 Salaries CSV", type="csv")
+uploaded_file = st.file_uploader("Upload NFL Salaries CSV", type="csv")
 if uploaded_file is not None:
     # Read CSV directly from the uploaded file
     players_df = pd.read_csv(uploaded_file)
@@ -86,4 +86,5 @@ else:
 # Clean up temporary file if it exists
 if temp_file is not None and os.path.exists(temp_file):
     os.remove(temp_file)
+
 
