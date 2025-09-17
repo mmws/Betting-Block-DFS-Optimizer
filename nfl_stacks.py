@@ -2,15 +2,14 @@ import streamlit as st
 import pandas as pd
 import datetime
 import os
+import re
+from typing import Optional, Tuple
 from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player, GameInfo
 from pydfs_lineup_optimizer.stacks import TeamStack, GameStack
 
 # Streamlit app configuration
 st.set_page_config(page_title="DFS Lineup Optimizer", layout="wide")
 st.title("DraftKings NFL Lineup Optimizer")
-
-# Initialize temp_file as None
-temp_file = None
 
 # File uploader for CSV
 uploaded_file = st.file_uploader("Upload NFL Salaries CSV", type="csv")
@@ -24,7 +23,7 @@ if uploaded_file is not None:
     # Initialize optimizer
     optimizer = get_optimizer(Site.DRAFTKINGS, Sport.FOOTBALL)
 
-    # Load players from the temporary CSV file with game info
+    # Load players from CSV with game info
     try:
         df = pd.read_csv(temp_file)
         players = []
@@ -33,6 +32,11 @@ if uploaded_file is not None:
             if 'game' in col.lower().replace(' ', ''):
                 game_col = col
                 break
+        if not game_col:
+            st.error("CSV must include a 'Game' column (e.g., 'KC@BAL') for stacking.")
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            st.stop()
         for idx, row in df.iterrows():
             player_id = str(row.get('ID', f'r{idx}')).strip()
             name = str(row.get('Name', f'Player{idx}')).strip()
@@ -42,9 +46,14 @@ if uploaded_file is not None:
             raw_pos = str(row.get('Position', '')).strip()
             positions = [p.strip() for p in re.split(r'[\/|,]', raw_pos)] if raw_pos else []
             team = str(row.get('Team', '')).strip() if 'Team' in row else None
-            salary = float(str(row.get('Salary', '')).replace('$', '').replace(',', '').strip()) if 'Salary' in row else None
+            salary = None
+            if 'Salary' in row:
+                try:
+                    salary = float(str(row['Salary']).replace('$', '').replace(',', '').strip())
+                except:
+                    pass
             fppg = float(str(row.get('FPPG', 0)).replace(',', '').strip()) if 'FPPG' in row else 0.0
-            game = str(row[game_col]).strip() if game_col and not saying(row[game_col]) else None
+            game = str(row[game_col]).strip() if not pd.isna(row[game_col]) else None
             opponent = None
             game_info = None
             if game and '@' in game:
@@ -70,24 +79,21 @@ if uploaded_file is not None:
         st.write(f"Loaded {len(players)} players")
     except Exception as e:
         st.error(f"Error loading players: {str(e)}")
-        if temp_file and os.path.exists(temp_file):
+        if os.path.exists(temp_file):
             os.remove(temp_file)
         st.stop()
 
     # Sidebar for optimizer settings
     st.sidebar.header("Optimizer Settings")
     num_lineups = st.sidebar.slider("Number of Lineups", min_value=1, max_value=100, value=50)
-    min_salary = st.sidebar.number_input("Minimum Salary Cap", min_value=40000, max_value=50000, value=49000)
-    use_stacks = st.sidebar.checkbox("Enable Stacking Constraints", value=True)
+    max_exposure = st.sidebar.slider("Max Exposure per Player", min_value=0.0, max_value=1.0, value=0.3, step=0.05)
 
-    # Apply settings
-    optimizer.set_min_salary_cap(min_salary)
-    if use_stacks:
-        optimizer.restrict_positions_for_same_team(('RB', 'RB'))
-        optimizer.force_positions_for_opposing_team([('QB', 'WR'), ('QB', 'RB')])
-        optimizer.set_max_repeating_players(3)
-        optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'TE']))
-        optimizer.add_stack(GameStack(4, min_from_team=1))
+    # Apply stacking constraints automatically
+    optimizer.restrict_positions_for_same_team(('RB', 'RB'))
+    optimizer.force_positions_for_opposing_team([('QB', 'WR'), ('QB', 'RB')])
+    optimizer.set_max_repeating_players(3)
+    optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'TE']))
+    optimizer.add_stack(GameStack(4, min_from_team=1))
 
     # Optimize button
     if st.button("Generate Lineups"):
@@ -95,7 +101,7 @@ if uploaded_file is not None:
             # Optimize lineups
             lineups = []
             num = 1
-            for lineup in optimizer.optimize(n=num_lineups, max_exposure=0.3):
+            for lineup in optimizer.optimize(n=num_lineups, max_exposure=max_exposure):
                 lineup_data = {
                     "Lineup #": num,
                     "Players": ", ".join([f"{p.full_name} ({p.positions[0]})" for p in lineup.players]),
@@ -123,12 +129,8 @@ if uploaded_file is not None:
             st.error(f"Error generating lineups: {str(e)}")
 
     # Clean up temporary file
-    if temp_file and os.path.exists(temp_file):
+    if os.path.exists(temp_file):
         os.remove(temp_file)
 
 else:
     st.info("Please upload a CSV file with player salaries to start.")
-
-# Clean up temporary file if it exists
-if temp_file and os.path.exists(temp_file):
-    os.remove(temp_file)
