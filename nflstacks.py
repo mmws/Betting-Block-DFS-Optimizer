@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
-from pydfs_lineup_optimizer import Site, Sport, get_optimizer, AfterEachExposureStrategy, PositionsStack, TeamStack
+from pydfs_lineup_optimizer import Site, Sport, get_optimizer, AfterEachExposureStrategy, PositionsStack, PlayersGroup, Lineup
+from pydfs_lineup_optimizer import TotalExposureStrategy
+from pydfs_lineup_optimizer.stacks import GameStack, TeamStack
 import datetime
 import os
 
@@ -84,3 +86,4 @@ else:
 # Clean up temporary file if it exists
 if temp_file is not None and os.path.exists(temp_file):
     os.remove(temp_file)
+
