@@ -3,8 +3,8 @@ import pandas as pd
 
 st.title("DFS GPP Player Trimmer")
 
-# Upload CSV
-uploaded_file = st.file_uploader("Upload Salaries CSV", type=["csv"])
+# Upload merged CSV
+uploaded_file = st.file_uploader("Upload Merged DFS Players CSV", type=["csv"])
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
@@ -17,7 +17,7 @@ if uploaded_file is not None:
     positions = df['Position'].unique()
     selected_positions = st.multiselect("Select Positions to Filter", positions, default=positions)
 
-    # Filter criteria
+    # Filter criteria for GPP strategy
     st.subheader("Filter Criteria for GPP Strategy")
     min_ceiling = st.slider("Minimum Ceiling (for high-upside GPP)", min_value=0.0, max_value=50.0, value=20.0)
     max_salary = st.slider("Maximum Salary (mid-tier focus, avoid high-chalk)", min_value=0, max_value=10000, value=7000)
@@ -27,9 +27,9 @@ if uploaded_file is not None:
     # Filter dataframe
     filtered_df = df[df['Position'].isin(selected_positions)]
     filtered_df = filtered_df[(filtered_df['Ceiling'] >= min_ceiling) &
-                              (filtered_df['Salary'] <= max_salary) &
-                              (filtered_df['Def v Pos'] <= max_dvp_rank) &
-                              (filtered_df['BB Proj'] >= min_bb_proj)]
+                             (filtered_df['Salary'] <= max_salary) &
+                             (filtered_df['DVP'] <= max_dvp_rank) &
+                             (filtered_df['BB Proj'] >= min_bb_proj)]
 
     # Ensure diversification: Aim for enough players per position
     # Rough targets: QB: 10-15, RB: 20-30, WR: 30-50, TE: 10-20, DST: 5-10
@@ -51,4 +51,4 @@ if uploaded_file is not None:
         mime='text/csv',
     )
 else:
-    st.write("Please upload the salaries CSV to begin.")
+    st.write("Please upload the merged DFS players CSV to begin.")
