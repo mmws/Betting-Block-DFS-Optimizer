@@ -18,8 +18,8 @@ if salaries_file is not None and stats_file is not None:
     st.subheader("Stats Data")
     st.dataframe(stats_df.head())
 
-    # Select relevant columns from stats_df and rename 'Player' to 'Name'
-    stats_subset = stats_df[['Player', 'Def v Pos', 'FC Proj']].rename(
+    # Select relevant columns from stats_df and rename
+    stats_subset = stats_df[['Player', 'Def v Pos', 'FC Proj', 'Ceiling']].rename(
         columns={'Def v Pos': 'DVP', 'FC Proj': 'BB Proj', 'Player': 'Name'}
     )
 
@@ -32,7 +32,7 @@ if salaries_file is not None and stats_file is not None:
     )
 
     # Check for missing merges
-    missing = merged_df[merged_df['DVP'].isna() | merged_df['BB Proj'].isna()]
+    missing = merged_df[merged_df['DVP'].isna() | merged_df['BB Proj'].isna() | merged_df['Ceiling'].isna()]
     if not missing.empty:
         st.warning(f"Warning: {len(missing)} players could not be matched. Check Name consistency.")
         st.dataframe(missing[['Name', 'ID']])
@@ -40,7 +40,7 @@ if salaries_file is not None and stats_file is not None:
     # Reorder columns to match desired output
     output_columns = [
         'Position', 'Name + ID', 'Name', 'ID', 'Roster Position', 'Salary',
-        'Game Info', 'TeamAbbrev', 'AvgPointsPerGame', 'DVP', 'BB Proj'
+        'Game Info', 'TeamAbbrev', 'AvgPointsPerGame', 'DVP', 'BB Proj', 'Ceiling'
     ]
     merged_df = merged_df[output_columns]
 
@@ -60,7 +60,7 @@ if salaries_file is not None and stats_file is not None:
     # Summary statistics
     st.subheader("Merge Summary")
     st.write(f"Total players in merged file: {len(merged_df)}")
-    st.write(f"Players with DVP and BB Proj: {len(merged_df[~merged_df['DVP'].isna()])}")
+    st.write(f"Players with DVP, BB Proj, and Ceiling: {len(merged_df[~merged_df['DVP'].isna()])}")
     position_counts = merged_df['Position'].value_counts()
     st.write("Player counts by position:")
     st.write(position_counts)
