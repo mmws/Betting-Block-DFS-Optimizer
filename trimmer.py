@@ -23,10 +23,10 @@ if uploaded_file is not None:
 
     # Filter criteria for GPP strategy
     st.subheader("Filter Criteria for GPP Strategy")
-    min_ceiling = st.slider("Minimum Ceiling (for high-upside GPP)", min_value=0.0, max_value=50.0, value=15.0)  # Lowered from 20.0
-    max_salary = st.slider("Maximum Salary (mid-tier focus, avoid high-chalk)", min_value=0, max_value=10000, value=8000)  # Raised from 7000
-    max_dvp_rank = st.slider("Maximum DVP Rank (lower = weaker defense)", min_value=1, max_value=32, value=20)  # Raised from 16
-    min_bb_proj = st.slider("Minimum BB Proj (projected points)", min_value=0.0, max_value=30.0, value=8.0)  # Lowered from 10.0
+    min_ceiling = st.slider("Minimum Ceiling (for high-upside GPP)", min_value=0.0, max_value=50.0, value=15.0)
+    max_salary = st.slider("Maximum Salary (mid-tier focus, avoid high-chalk)", min_value=0, max_value=10000, value=8000)
+    min_dvp_rank = st.slider("Minimum DVP Rank (higher = weaker defense)", min_value=1, max_value=32, value=12)  # Reversed: higher DVP = easier matchup
+    min_bb_proj = st.slider("Minimum BB Proj (projected points)", min_value=0.0, max_value=30.0, value=8.0)
 
     # Trim button to apply filters
     if st.button("Trim Player Pool"):
@@ -34,7 +34,7 @@ if uploaded_file is not None:
         filtered_df = df[df['Position'].isin(selected_positions)]
         filtered_df = filtered_df[(filtered_df['Ceiling'] >= min_ceiling) &
                                  (filtered_df['Salary'] <= max_salary) &
-                                 (filtered_df['DVP'] <= max_dvp_rank) &
+                                 (filtered_df['DVP'] >= min_dvp_rank) &  # Reversed to filter for higher DVP ranks
                                  (filtered_df['BB Proj'] >= min_bb_proj)]
 
         # Store filtered dataframe in session state
