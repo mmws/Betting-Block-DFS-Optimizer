@@ -18,23 +18,23 @@ if salaries_file is not None and stats_file is not None:
     st.subheader("Stats Data")
     st.dataframe(stats_df.head())
 
-    # Select relevant columns from stats_df
-    stats_subset = stats_df[['Player', 'ID', 'Def v Pos', 'FC Proj']].rename(
+    # Select relevant columns from stats_df and rename 'Player' to 'Name'
+    stats_subset = stats_df[['Player', 'Def v Pos', 'FC Proj']].rename(
         columns={'Def v Pos': 'DVP', 'FC Proj': 'BB Proj', 'Player': 'Name'}
     )
 
-    # Merge dataframes on 'Name' and 'ID'
+    # Merge dataframes on 'Name'
     merged_df = pd.merge(
         salaries_df,
         stats_subset,
-        on=['Name', 'ID'],
+        on='Name',
         how='left'
     )
 
     # Check for missing merges
     missing = merged_df[merged_df['DVP'].isna() | merged_df['BB Proj'].isna()]
     if not missing.empty:
-        st.warning(f"Warning: {len(missing)} players could not be matched. Check Name/ID consistency.")
+        st.warning(f"Warning: {len(missing)} players could not be matched. Check Name consistency.")
         st.dataframe(missing[['Name', 'ID']])
 
     # Reorder columns to match desired output
