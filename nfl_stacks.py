@@ -288,7 +288,8 @@ if gen_btn:
                     pos_counter["FLEX"] += 1
 
         for col in ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]:
-            if col not in row: row[col] = ""
+            if col not in row: 
+                row[col] = ""
 
         row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
         row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
@@ -307,6 +308,11 @@ if gen_btn:
 
     st.markdown("### Player Exposures")
     st.dataframe(exposures_df)
+
+    # --- CSV download ---
+    csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
+    st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+
 
         csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
         st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
