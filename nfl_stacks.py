@@ -265,54 +265,52 @@ if gen_btn:
         st.error(f"Error generating lineups: {e}")
         lineups = []
 
-if lineups:
+    if lineups:
     # --- map positions safely (existing code) ---
-    df_rows = []
-    all_players = []  # to track exposures
-    for lineup in lineups:
-        row = {}
-        pos_counter = {k: 0 for k in position_columns.keys()}
-        for p in lineup.players:
-            all_players.append(player_display_name(p))  # track for exposure
-            assigned = False
-            for pos in p.positions or []:
-                if pos in position_columns and pos_counter[pos] < len(position_columns[pos]):
-                    col = position_columns[pos][pos_counter[pos]]
-                    row[col] = f"{player_display_name(p)}({p.id})"
-                    pos_counter[pos] += 1
-                    assigned = True
-                    break
-            if not assigned:
-                if pos_counter["FLEX"] < 1:
-                    row["FLEX"] = f"{player_display_name(p)}({p.id})"
-                    pos_counter["FLEX"] += 1
+        df_rows = []
+        all_players = []  # to track exposures
+        for lineup in lineups:
+            row = {}
+            pos_counter = {k: 0 for k in position_columns.keys()}
+            for p in lineup.players:
+                all_players.append(player_display_name(p))  # track for exposure
+                assigned = False
+                for pos in p.positions or []:
+                    if pos in position_columns and pos_counter[pos] < len(position_columns[pos]):
+                        col = position_columns[pos][pos_counter[pos]]
+                        row[col] = f"{player_display_name(p)}({p.id})"
+                        pos_counter[pos] += 1
+                        assigned = True
+                        break
+                if not assigned:
+                    if pos_counter["FLEX"] < 1:
+                        row["FLEX"] = f"{player_display_name(p)}({p.id})"
+                        pos_counter["FLEX"] += 1
 
-        for col in ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]:
-            if col not in row: 
-                row[col] = ""
+            for col in ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]:
+                if col not in row: 
+                    row[col] = ""
 
-        row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
-        row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
-        df_rows.append(row)
+            row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
+            row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
+            df_rows.append(row)
 
-    df_wide = pd.DataFrame(df_rows)
-    st.markdown("### Lineups (wide)")
-    st.dataframe(df_wide)
+        df_wide = pd.DataFrame(df_rows)
+        st.markdown("### Lineups (wide)")
+        st.dataframe(df_wide)
 
-    # --- calculate exposures ---
-    from collections import Counter
-    exposures = Counter(all_players)
-    exposures_df = pd.DataFrame(exposures.items(), columns=["Player","Count"])
-    exposures_df["Exposure %"] = exposures_df["Count"] / len(lineups) * 100
-    exposures_df = exposures_df.sort_values("Exposure %", ascending=False)
+        # --- calculate exposures ---
+        from collections import Counter
+        exposures = Counter(all_players)
+        exposures_df = pd.DataFrame(exposures.items(), columns=["Player","Count"])
+        exposures_df["Exposure %"] = exposures_df["Count"] / len(lineups) * 100
+        exposures_df = exposures_df.sort_values("Exposure %", ascending=False)
 
-    st.markdown("### Player Exposures")
-    st.dataframe(exposures_df)
+        st.markdown("### Player Exposures")
+        st.dataframe(exposures_df)
+
+   
 
     # --- CSV download ---
-    csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-    st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
-
-
     csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
     st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
