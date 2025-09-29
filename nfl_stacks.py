@@ -313,5 +313,5 @@ if gen_btn:
         # build df_wide here...
         csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
         st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
-            else:
-                st.warning("No lineups generated — CSV not available.")
+        else:
+            st.warning("No lineups generated — CSV not available.")
