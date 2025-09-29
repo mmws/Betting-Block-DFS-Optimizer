@@ -252,6 +252,9 @@ if gen_btn:
             optimizer.add_stack(GameStack(3, min_from_team=1))
         if no_double_rb:
             optimizer.restrict_positions_for_same_team(("RB", "RB"))
+        if min_salary:
+            optimizer.set_min_salary_cap(min_salary)
+
 
 
         with st.spinner("Generating..."):
