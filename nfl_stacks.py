@@ -314,5 +314,5 @@ if lineups:
     st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
 
 
-        csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-        st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+    csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
+    st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
