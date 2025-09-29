@@ -223,8 +223,11 @@ no_double_rb = st.checkbox("Restrict 2 RBs from same team", value=True)
 
 
 
-# --- generate lineups ---
+gen_btn = st.button("Generate")  # define first
+
 if gen_btn:
+    st.write("Generating lineups...")
+    # your lineup generation code here
     try:
         # Apply stacking rules before optimization
         if enable_qb_wr:
