@@ -309,9 +309,9 @@ if gen_btn:
         st.markdown("### Player Exposures")
         st.dataframe(exposures_df)
 
-      if lineups:
+    
         # build df_wide here...
         csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
         st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
-    else:
+            else:
         st.warning("No lineups generated — CSV not available.")
