@@ -220,13 +220,7 @@ enable_qb_te_wr = st.sidebar.checkbox("QB + TE + WR Stack", value=False)
 enable_team_stack = st.checkbox("Team stack (3 players: QB/WR/TE)", value=True)
 enable_game_stack = st.checkbox("Game stack (4 players, min 1 from opponent)", value=False)
 no_double_rb = st.checkbox("Restrict 2 RBs from same team", value=True)
-# Example: QB stack with bringbacks, but exclude DST
-optimizer.add_stack(GameStack(
-    positions=["QB"],                      # primary stack side
-    opposing_positions=["QB", "RB", "WR", "TE"],  # allowed bringbacks
-    max_exposure=1.0
-))
-
+optimizer.restrict_positions_for_same_game(["DST"], ["QB", "RB", "WR", "TE"])
 gen_btn = st.button("Generate lineups")
 
 # --- generate lineups ---
