@@ -248,9 +248,7 @@ if gen_btn:
             optimizer.add_stack(GameStack(3, min_from_team=1))
         if no_double_rb:
             optimizer.restrict_positions_for_same_team(("RB", "RB"))
-        if force_qb_bringback:
-            optimizer.force_positions_for_opposing_team(("QB", "WR"))
-            optimizer.force_positions_for_opposing_team(("QB", "RB"))
+
 
         with st.spinner("Generating..."):
             lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
