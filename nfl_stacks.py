@@ -265,7 +265,7 @@ if gen_btn:
         st.error(f"Error generating lineups: {e}")
         lineups = []
 
-    if lineups:
+if lineups:
     # --- map positions safely (existing code) ---
     df_rows = []
     all_players = []  # to track exposures
