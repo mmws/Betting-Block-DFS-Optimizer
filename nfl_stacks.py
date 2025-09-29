@@ -213,15 +213,15 @@ optimizer.set_max_repeating_players(max_repeating_players)
 
 # --- stacking options ---
 st.markdown("### Stacking Options")
-enable_qb_wr = st.checkbox("QB + WR stack", value=True)
+enable_qb_wr = st.checkbox("QB + WR stack", value=False)
 enable_qb_te = st.checkbox("QB + TE stack", value=False)
 enable_qb_rb_wr = st.checkbox("QB + RB + WR Stack", value=False)
 enable_qb_rb_te = st.checkbox("QB + RB + TE Stack", value=False)
 enable_qb_wr_wr = st.checkbox("QB + WR + WR Stack", value=False)
 enable_qb_te_wr = st.checkbox("QB + TE + WR Stack", value=False)
-enable_team_stack = st.checkbox("Team stack (3 players: QB/WR/TE)", value=True)
+enable_team_stack = st.checkbox("Team stack (3 players: QB/WR/TE)", value=False)
 enable_game_stack = st.checkbox("Game stack (3 players, min 1 from opponent)", value=False)
-no_double_rb = st.checkbox("Restrict 2 RBs from same team", value=True)
+no_double_rb = st.checkbox("Restrict 2 RBs from same team", value=False)
 # Streamlit dropdown for minimum salary (scalable by 100, max 50000)
 min_salary_options = list(range(47000, 50001, 100))  # starts at 40000, ends at 50000
 min_salary = st.selectbox("Select Minimum Salary for Lineups", min_salary_options, index=len(min_salary_options)-1)
