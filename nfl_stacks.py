@@ -272,97 +272,97 @@ if gen_btn:
     }
 
     # --- apply stacking and restrictions safely ---
-    try:
-        # Clear previous stacks to avoid duplicates if user presses generate multiple times
-        optimizer.stacks = []
-        optimizer.restrictions = []
+        try:
+            # Clear previous stacks to avoid duplicates if user presses generate multiple times
+            optimizer.stacks = []
+            optimizer.restrictions = []
 
-        if enable_qb_wr:
-            try: optimizer.add_stack(PositionsStack(("QB", "WR")))
-            except: st.warning("Could not apply QB+WR stack")
-        if enable_qb_te:
-            try: optimizer.add_stack(PositionsStack(("QB", "TE")))
-            except: st.warning("Could not apply QB+TE stack")
-        if enable_qb_rb_wr:
-            try: optimizer.add_stack(PositionsStack(("QB", "RB", "WR")))
-            except: st.warning("Could not apply QB+RB+WR stack")
-        if enable_qb_rb_te:
-            try: optimizer.add_stack(PositionsStack(("QB", "RB", "TE")))
-            except: st.warning("Could not apply QB+RB+TE stack")
-        if enable_qb_wr_wr:
-            try: optimizer.add_stack(PositionsStack(("QB", "WR", "WR")))
-            except: st.warning("Could not apply QB+WR+WR stack")
-        if enable_qb_te_wr:
-            try: optimizer.add_stack(PositionsStack(("QB", "TE", "WR")))
-            except: st.warning("Could not apply QB+TE+WR stack")
-        if enable_team_stack:
-            try: optimizer.add_stack(TeamStack(3, for_positions=["QB", "WR", "TE"]))
-            except: st.warning("Could not apply Team stack")
-        if enable_game_stack:
-            try: optimizer.add_stack(GameStack(3, min_from_team=1))
-            except: st.warning("Could not apply Game stack")
-        if no_double_rb:
-            try: optimizer.restrict_positions_for_same_team(("RB", "RB"))
-            except: st.warning("Could not restrict 2 RBs from same team")
+            if enable_qb_wr:
+                try: optimizer.add_stack(PositionsStack(("QB", "WR")))
+                except: st.warning("Could not apply QB+WR stack")
+            if enable_qb_te:
+                try: optimizer.add_stack(PositionsStack(("QB", "TE")))
+                except: st.warning("Could not apply QB+TE stack")
+            if enable_qb_rb_wr:
+                try: optimizer.add_stack(PositionsStack(("QB", "RB", "WR")))
+                except: st.warning("Could not apply QB+RB+WR stack")
+            if enable_qb_rb_te:
+                try: optimizer.add_stack(PositionsStack(("QB", "RB", "TE")))
+                except: st.warning("Could not apply QB+RB+TE stack")
+            if enable_qb_wr_wr:
+                try: optimizer.add_stack(PositionsStack(("QB", "WR", "WR")))
+                except: st.warning("Could not apply QB+WR+WR stack")
+            if enable_qb_te_wr:
+                try: optimizer.add_stack(PositionsStack(("QB", "TE", "WR")))
+                except: st.warning("Could not apply QB+TE+WR stack")
+            if enable_team_stack:
+                try: optimizer.add_stack(TeamStack(3, for_positions=["QB", "WR", "TE"]))
+                except: st.warning("Could not apply Team stack")
+            if enable_game_stack:
+                try: optimizer.add_stack(GameStack(3, min_from_team=1))
+                except: st.warning("Could not apply Game stack")
+            if no_double_rb:
+                try: optimizer.restrict_positions_for_same_team(("RB", "RB"))
+                except: st.warning("Could not restrict 2 RBs from same team")
 
-        # Min salary (optional)
-        if min_salary:
-            try: optimizer.set_min_salary_cap(min_salary)
-            except: st.warning("Could not enforce min salary; may be too high for this player pool")
+            # Min salary (optional)
+            if min_salary:
+                try: optimizer.set_min_salary_cap(min_salary)
+                except: st.warning("Could not enforce min salary; may be too high for this player pool")
 
-        # Generate lineups
-        with st.spinner("Generating..."):
-            lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
-        st.success(f"Generated {len(lineups)} lineup(s)")
-    except Exception as e:
-        st.error(f"Error generating lineups: {e}")
-        lineups = []
+            # Generate lineups
+            with st.spinner("Generating..."):
+                lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
+            st.success(f"Generated {len(lineups)} lineup(s)")
+        except Exception as e:
+            st.error(f"Error generating lineups: {e}")
+            lineups = []
 
-    if lineups:
-        # --- build wide DataFrame and track exposures ---
-        df_rows = []
-        all_players = []
+        if lineups:
+            # --- build wide DataFrame and track exposures ---
+            df_rows = []
+            all_players = []
 
-        for lineup in lineups:
-            row = {}
-            pos_counter = {k: 0 for k in position_columns.keys()}
+            for lineup in lineups:
+                row = {}
+                pos_counter = {k: 0 for k in position_columns.keys()}
 
-            for p in lineup.players:
-                all_players.append(player_display_name(p))
-                assigned = False
-                for pos in p.positions or []:
-                    if pos in position_columns and pos_counter[pos] < len(position_columns[pos]):
-                        col = position_columns[pos][pos_counter[pos]]
-                        row[col] = f"{player_display_name(p)}({p.id})"
-                        pos_counter[pos] += 1
-                        assigned = True
-                        break
-                if not assigned:
-                    if pos_counter["FLEX"] < 1:
-                        row["FLEX"] = f"{player_display_name(p)}({p.id})"
-                        pos_counter["FLEX"] += 1
+                for p in lineup.players:
+                    all_players.append(player_display_name(p))
+                    assigned = False
+                    for pos in p.positions or []:
+                        if pos in position_columns and pos_counter[pos] < len(position_columns[pos]):
+                            col = position_columns[pos][pos_counter[pos]]
+                            row[col] = f"{player_display_name(p)}({p.id})"
+                            pos_counter[pos] += 1
+                            assigned = True
+                            break
+                    if not assigned:
+                        if pos_counter["FLEX"] < 1:
+                            row["FLEX"] = f"{player_display_name(p)}({p.id})"
+                            pos_counter["FLEX"] += 1
 
-            for col in position_columns.keys():
-                if col not in row:
-                    row[col] = ""
+                for col in position_columns.keys():
+                    if col not in row:
+                        row[col] = ""
 
-            row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
-            row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
-            df_rows.append(row)
+                row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
+                row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
+                df_rows.append(row)
 
-        df_wide = pd.DataFrame(df_rows)
-        st.markdown("### Lineups (wide)")
-        st.dataframe(df_wide)
+            df_wide = pd.DataFrame(df_rows)
+            st.markdown("### Lineups (wide)")
+            st.dataframe(df_wide)
 
-        # --- calculate player exposures ---
-        from collections import Counter
-        exposures = Counter(all_players)
-        exposures_df = pd.DataFrame(exposures.items(), columns=["Player","Count"])
-        exposures_df["Exposure %"] = exposures_df["Count"] / len(lineups) * 100
-        exposures_df = exposures_df.sort_values("Exposure %", ascending=False)
-        st.markdown("### Player Exposures")
-        st.dataframe(exposures_df)
+            # --- calculate player exposures ---
+            from collections import Counter
+            exposures = Counter(all_players)
+            exposures_df = pd.DataFrame(exposures.items(), columns=["Player","Count"])
+            exposures_df["Exposure %"] = exposures_df["Count"] / len(lineups) * 100
+            exposures_df = exposures_df.sort_values("Exposure %", ascending=False)
+            st.markdown("### Player Exposures")
+            st.dataframe(exposures_df)
 
-        # --- CSV download ---
-        csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
-        st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
+            # --- CSV download ---
+            csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
+            st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
