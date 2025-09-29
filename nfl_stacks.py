@@ -226,12 +226,20 @@ if gen_btn:
         # Apply stacking rules before optimization
         if enable_qb_wr:
             optimizer.add_stack(PositionsStack(("QB", "WR")))
+        if enable_qb_wr:
+            optimizer.add_stack(PositionsStack(("QB", "RB", "WR")))
+        if enable_qb_wr:
+            optimizer.add_stack(PositionsStack(("QB", "RB", "TE")))     
+        if enable_qb_wr:
+            optimizer.add_stack(PositionsStack(("QB", "WR", "WR")))
+        if enable_qb_wr:
+            optimizer.add_stack(PositionsStack(("QB", "RB", "TE")))
         if enable_qb_te:
             optimizer.add_stack(PositionsStack(("QB", "TE")))
         if enable_team_stack:
             optimizer.add_stack(TeamStack(3, for_positions=["QB", "WR", "TE"]))
         if enable_game_stack:
-            optimizer.add_stack(GameStack(4, min_from_team=1))
+            optimizer.add_stack(GameStack(3, min_from_team=1))
         if no_double_rb:
             optimizer.restrict_positions_for_same_team(("RB", "RB"))
         if force_qb_bringback:
