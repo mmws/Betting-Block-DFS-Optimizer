@@ -230,7 +230,7 @@ enable_qb_rb_wr = st.checkbox("QB + RB + WR Stack", value=False)
 enable_qb_rb_te = st.checkbox("QB + RB + TE Stack", value=False)
 enable_qb_wr_wr = st.checkbox("QB + WR + WR Stack", value=False)
 enable_qb_te_wr = st.checkbox("QB + WR + TE Stack", value=False)
-enable_team_stack = st.checkbox("Team stack (3 players: QB/WR/TE)", value=True)
+# enable_team_stack = st.checkbox("Team stack (3 players: QB/WR/TE)", value=True)
 enable_game_stack = st.checkbox("Game stack (3 players, min 1 from opponent)", value=False)
 no_double_rb = st.checkbox("Restrict 2 RBs from same team", value=True)
 # no_dst_vs_offense = st.checkbox("No DST vs offensive players", value=False)
@@ -262,8 +262,8 @@ if gen_btn:
             optimizer.add_stack(PositionsStack(['QB', 'TE', 'WR'])) 
         if enable_qb_te:
             optimizer.add_stack(PositionsStack(['QB', 'TE']))
-        if enable_team_stack:
-            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'TE']))
+        # if enable_team_stack:
+        #    optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'TE']))
         if enable_game_stack:
             optimizer.add_stack(GameStack(3, min_from_team=1))
         if no_double_rb:
