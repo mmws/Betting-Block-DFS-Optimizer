@@ -269,9 +269,9 @@ if gen_btn:
             optimizer.add_stack(GameStack(2, min_from_team=1))
         if no_double_rb:
             optimizer.restrict_positions_for_same_team(("RB", "RB"))
-         if no_dst_vs_offense:
+        if no_dst_vs_offense:
              # DST cannot be on a team against any offensive players in the lineup
-             optimizer.restrict_positions_for_opposing_team(['DST'], ['QB','RB','WR','TE'])
+            optimizer.restrict_positions_for_opposing_team(['DST'], ['QB','RB','WR','TE'])
         if gen_btn and enable_runback:
             # Apply runback stack
             # optimizer.force_positions_for_opposing_team expects a tuple of positions
