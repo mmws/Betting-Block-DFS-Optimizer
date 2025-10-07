@@ -260,7 +260,7 @@ if gen_btn:
             optimizer.restrict_positions_for_same_team(("RB", "RB"))
         if no_dst_vs_offense:
              # DST cannot be on a team against any offensive players in the lineup
-            optimizer.restrict_positions_for_opposing_team(['DST'], ['QB','RB','WR','TE'])
+            optimizer.restrict_positions_for_opposing_team(['DST'], ['QB', 'WR', 'RB', 'TE'])
             # if enable_runback:
             # Apply runback stack
             # optimizer.force_positions_for_opposing_team expects a tuple of positions
