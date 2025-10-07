@@ -123,21 +123,6 @@ st.markdown("**Preview (first 10 rows):**")
 st.dataframe(df.head(10))
 
 # --- detect columns ---
-team = row["TeamAbbrev"]
-game = row["Game Info"]  # e.g. "LV@IND 10/05/2025 01:00PM ET"
-opponent = game.split(' ')[0].split('@')[1]  # take part after '@'
-game_info = f"{team}@{opponent}"
-
-player = Player(
-    id=row["ID"],
-    first_name="...",
-    last_name="...",
-    positions=["RB"],
-    team=team,
-    salary=row["Salary"],
-    fppg=row["AvgPointsPerGame"],
-    game_info=game_info
-)
 detected_site = guess_site_from_filename(getattr(uploaded_file, "name", None))
 id_col = find_column(df, ["id","playerid","player_id","ID"])
 name_plus_id_col = find_column(df, ["name + id","name+id","name_plus_id","name_id","nameandid"])
@@ -148,6 +133,9 @@ pos_col = find_column(df, ["position","positions","pos","roster position","roste
 salary_col = find_column(df, ["salary","salary_usd"])
 team_col = find_column(df, ["team","teamabbrev","team_abbrev","teamabbr"])
 fppg_col = find_column(df, ["avgpointspergame","avgpoints","fppg","projectedpoints","proj"])
+game = find_column(df, ["Game Info"]  # e.g. "LV@IND 10/05/2025 01:00PM ET"
+opponent = game.split(' ')[0].split('@')[1]  # take part after '@'
+game_info = f"{team}@{opponent}
 
 guessed_sport = guess_sport_from_positions(df[pos_col]) if pos_col else None
 auto_choice = f"{detected_site} {guessed_sport}" if detected_site and guessed_sport and f"{detected_site} {guessed_sport}" in SITE_MAP else None
