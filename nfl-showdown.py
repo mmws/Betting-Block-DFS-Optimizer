@@ -1,3 +1,4 @@
+##BB Showdown Optimizer
 import streamlit as st
 import pandas as pd
 import re
@@ -171,10 +172,18 @@ for idx, row in df.iterrows():
             first_name = str(row.get(name_col, f"Player{idx}"))
             last_name = ""
         raw_pos = str(row[pos_col]).strip() if pos_col and not pd.isna(row[pos_col]) else None
-        positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
-        # Special fix for Captain Mode: Ensure positions include 'CPT' and 'FLEX'
+        # Special handling for Captain Mode positions
         if "Captain Mode" in site_choice:
-            positions = ['CPT', 'FLEX'] if not positions else list(set(positions + ['CPT', 'FLEX']))
+            if 'CPT' in raw_pos.upper() or 'CAPTAIN' in raw_pos.upper():
+                positions = ['CPT']
+                player_id = f"{player_id}_CPT"
+            elif 'FLEX' in raw_pos.upper():
+                positions = ['FLEX']
+                player_id = f"{player_id}_FLEX"
+            else:
+                positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
+        else:
+            positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
         team = str(row[team_col]).strip() if team_col and not pd.isna(row[team_col]) else None
         salary = parse_salary(row[salary_col]) if salary_col else None
         fppg = safe_float(row[fppg_col]) if fppg_col else None
