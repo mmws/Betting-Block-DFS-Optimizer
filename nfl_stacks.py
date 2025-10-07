@@ -208,7 +208,7 @@ optimizer.player_pool.load_players(players)
 # --- lineup settings ---
 num_lineups = st.slider("Number of lineups", 1, 200, 5)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
+max_repeating_players = st.slider("Max repeating players", 0, len(players), 2, step=max(1, len(players)//5))
 optimizer.set_max_repeating_players(max_repeating_players)
 
 # --- stacking options ---
