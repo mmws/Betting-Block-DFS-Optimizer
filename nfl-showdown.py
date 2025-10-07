@@ -115,7 +115,7 @@ name_plus_id_col = find_column(df, ["name + id","name+id","name_plus_id","name_i
 name_col = find_column(df, ["name","full_name","player"])
 first_col = find_column(df, ["first_name","firstname","first"])
 last_col = find_column(df, ["last_name","lastname","last"])
-pos_col = find_column(df, ["roster position","rosterposition","roster_pos"])  # Prefer Roster Position for Captain Mode
+pos_col = find_column(df, ["roster position","rosterposition","roster_pos"]) # Prefer Roster Position for Captain Mode
 if not pos_col:
     pos_col = find_column(df, ["position","positions","pos"])
 salary_col = find_column(df, ["salary","salary_usd"])
@@ -193,8 +193,11 @@ optimizer.player_pool.load_players(players)
 # --- lineup settings ---
 num_lineups = st.slider("Number of lineups", 1, 200, 5)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
+max_repeating_players = st.slider("Max repeating players", 0, 5, 2)
+min_salary_options = list(range(48000, 50001, 100))
+min_salary = st.selectbox("Minimum Salary Cap", min_salary_options, index=0)
 optimizer.set_max_repeating_players(max_repeating_players)
+optimizer.set_min_salary_cap(min_salary)
 gen_btn = st.button("Generate lineups")
 
 # --- generate lineups ---
