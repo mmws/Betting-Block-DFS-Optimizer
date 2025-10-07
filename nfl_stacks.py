@@ -127,6 +127,17 @@ team = row["TeamAbbrev"]
 game = row["Game Info"]  # e.g. "LV@IND 10/05/2025 01:00PM ET"
 opponent = game.split(' ')[0].split('@')[1]  # take part after '@'
 game_info = f"{team}@{opponent}"
+
+player = Player(
+    id=row["ID"],
+    first_name="...",
+    last_name="...",
+    positions=["RB"],
+    team=team,
+    salary=row["Salary"],
+    fppg=row["AvgPointsPerGame"],
+    game_info=game_info
+)
 detected_site = guess_site_from_filename(getattr(uploaded_file, "name", None))
 id_col = find_column(df, ["id","playerid","player_id","ID"])
 name_plus_id_col = find_column(df, ["name + id","name+id","name_plus_id","name_id","nameandid"])
