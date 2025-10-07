@@ -133,9 +133,16 @@ pos_col = find_column(df, ["position","positions","pos","roster position","roste
 salary_col = find_column(df, ["salary","salary_usd"])
 team_col = find_column(df, ["team","teamabbrev","team_abbrev","teamabbr"])
 fppg_col = find_column(df, ["avgpointspergame","avgpoints","fppg","projectedpoints","proj"])
-game = find_column(df, ["Game Info"])  # e.g. "LV@IND 10/05/2025 01:00PM ET"
-opponent = game.split(' ')[0].split('@')[1]  # take part after '@'
-game_info = f"{team}@{opponent}
+game_col = find_column(df, ["game info","gameinfo","game"])  # detect Game Info column
+
+# extract opponent inline from the column
+opponent_col = game_col + "_opp" if game_col else None
+if game_col:
+    df[opponent_col] = df[game_col].apply(lambda x: str(x).split(' ')[0].split('@')[1] if pd.notna(x) and '@' in str(x).split(' ')[0] else None)
+
+# build game_info inline
+df["game_info"] = df.apply(lambda row: f"{row[team_col]}@{row[opponent_col]}" 
+                           if row[team_col] and row[opponent_col] else None, axis=1)
 
 guessed_sport = guess_sport_from_positions(df[pos_col]) if pos_col else None
 auto_choice = f"{detected_site} {guessed_sport}" if detected_site and guessed_sport and f"{detected_site} {guessed_sport}" in SITE_MAP else None
