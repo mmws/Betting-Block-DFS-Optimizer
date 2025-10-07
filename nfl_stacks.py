@@ -133,7 +133,7 @@ pos_col = find_column(df, ["position","positions","pos","roster position","roste
 salary_col = find_column(df, ["salary","salary_usd"])
 team_col = find_column(df, ["team","teamabbrev","team_abbrev","teamabbr"])
 fppg_col = find_column(df, ["avgpointspergame","avgpoints","fppg","projectedpoints","proj"])
-game = find_column(df, ["Game Info"]  # e.g. "LV@IND 10/05/2025 01:00PM ET"
+game = find_column(df, ["Game Info"])  # e.g. "LV@IND 10/05/2025 01:00PM ET"
 opponent = game.split(' ')[0].split('@')[1]  # take part after '@'
 game_info = f"{team}@{opponent}
 
