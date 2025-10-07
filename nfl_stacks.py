@@ -255,7 +255,7 @@ if gen_btn:
         if enable_team_stack:
             optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'TE']))
         if enable_game_stack:
-            optimizer.add_stack(GameStack(3, min_from_team=2))
+            optimizer.add_stack(GameStack(total=3, min_from_team=2, max_from_team=2))
         if no_double_rb:
             optimizer.restrict_positions_for_same_team(("RB", "RB"))
         if no_dst_vs_offense:
