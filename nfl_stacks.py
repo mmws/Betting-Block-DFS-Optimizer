@@ -1,24 +1,18 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import re
-from collections import Counter
 from typing import Optional, Tuple, List
-
-from pydfs_lineup_optimizer import get_optimizer, Site, Sport, Player
-from pydfs_lineup_optimizer.stacks import GameStack, TeamStack, PositionsStack
-
+from sleek_optimizer import get_optimizer, Player, TeamStack, GameStack
 
 st.set_page_config(page_title="The Betting Block DFS Optimizer", layout="wide")
 
 # --- Config / mappings ---
 SITE_MAP = {
-    "DraftKings NFL": (Site.DRAFTKINGS, Sport.FOOTBALL),
-    "FanDuel NFL": (Site.FANDUEL, Sport.FOOTBALL),
-    "DraftKings NBA": (Site.DRAFTKINGS, Sport.BASKETBALL),
-    "FanDuel NBA": (Site.FANDUEL, Sport.BASKETBALL),
+    "DraftKings NFL": ("DRAFTKINGS", "FOOTBALL"),
+    "FanDuel NFL": ("FANDUEL", "FOOTBALL"),
+    "DraftKings NBA": ("DRAFTKINGS", "BASKETBALL"),
+    "FanDuel NBA": ("FANDUEL", "BASKETBALL"),
 }
-
 NFL_POSITION_HINTS = {"QB", "RB", "WR", "TE", "K", "DST"}
 NBA_POSITION_HINTS = {"PG", "SG", "SF", "PF", "C", "G", "F"}
 
@@ -107,10 +101,9 @@ def player_display_name(p) -> str:
 # --- UI ---
 st.title("The Betting Block DFS Optimizer")
 st.write("Upload a salary CSV exported from DraftKings or FanDuel (NFL/NBA).")
-
 uploaded_file = st.file_uploader("Upload salary CSV", type=["csv"])
 if not uploaded_file:
-    st.info("Upload a CSV (e.g. DKSalaries.csv). The app will try to auto-detect site & sport.")
+    st.info("Upload a CSV (e.g. `DKSalaries.csv`). The app will try to auto-detect site & sport.")
     st.stop()
 
 try:
@@ -133,7 +126,7 @@ pos_col = find_column(df, ["position","positions","pos","roster position","roste
 salary_col = find_column(df, ["salary","salary_usd"])
 team_col = find_column(df, ["team","teamabbrev","team_abbrev","teamabbr"])
 fppg_col = find_column(df, ["avgpointspergame","avgpoints","fppg","projectedpoints","proj"])
-
+game_col = find_column(df, ["game","gameinfo","matchup"])  # Added for game stacks
 guessed_sport = guess_sport_from_positions(df[pos_col]) if pos_col else None
 auto_choice = f"{detected_site} {guessed_sport}" if detected_site and guessed_sport and f"{detected_site} {guessed_sport}" in SITE_MAP else None
 
@@ -145,6 +138,7 @@ st.write({
     "guessed_sport": guessed_sport,
     "name_column": name_col or name_plus_id_col,
     "id_column": id_col,
+    "game_column": game_col,
 })
 
 site_choice = None
@@ -167,7 +161,6 @@ for idx, row in df.iterrows():
         if not player_id and name_plus_id_col:
             _, player_id = parse_name_and_id_from_field(row[name_plus_id_col])
         if not player_id: player_id = f"r{idx}"
-
         if first_col and last_col:
             first_name = str(row[first_col]).strip()
             last_name = str(row[last_col]).strip()
@@ -183,95 +176,60 @@ for idx, row in df.iterrows():
         else:
             first_name = str(row.get(name_col, f"Player{idx}"))
             last_name = ""
-
         raw_pos = str(row[pos_col]).strip() if pos_col and not pd.isna(row[pos_col]) else None
-        positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
-
+        positions = [p.strip() for p in re.split(r'[\/|,]', raw_pos)] if raw_pos else []
         team = str(row[team_col]).strip() if team_col and not pd.isna(row[team_col]) else None
         salary = parse_salary(row[salary_col]) if salary_col else None
         fppg = safe_float(row[fppg_col]) if fppg_col else None
-
+        game = str(row[game_col]).strip() if game_col and not pd.isna(row[game_col]) else None
+        opponent = None
+        game_id = None
+        if game and '@' in game:
+            t1, t2 = game.split('@')
+            game_id = game
+            opponent = t2 if team == t1 else t1 if team == t2 else None
         if salary is None:
             skipped += 1
             continue
-
-        players.append(Player(player_id, first_name, last_name, positions or None, team, salary, fppg or 0.0))
+        players.append(Player(
+            player_id, first_name + ' ' + last_name, positions or None, team, salary, fppg or 0.0,
+            opponent=opponent, game_id=game_id
+        ))
     except:
         skipped += 1
         continue
 
 st.write(f"Loaded {len(players)} players (skipped {skipped})")
 if len(players)==0: st.error("No valid players!"); st.stop()
-
-optimizer.player_pool.load_players(players)
+optimizer.load_players_from_csv(uploaded_file, games_map=None)  # Use CSV directly; games_map inferred
 
 # --- lineup settings ---
 num_lineups = st.slider("Number of lineups", 1, 200, 5)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
 max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
-optimizer.set_max_repeating_players(max_repeating_players)
 
-# --- Generate lineups button ---
+# --- stack settings ---
+st.markdown("### Stack Settings")
+use_stacks = st.checkbox("Enable stacking constraints")
+if use_stacks:
+    optimizer.restrict_positions_for_same_team(('RB', 'RB'))
+    optimizer.restrict_positions_for_opposing_team(['DST'], ['QB', 'WR', 'RB', 'TE'])
+    optimizer.force_positions_for_opposing_team([('QB', 'WR'), ('QB', 'RB')])
+    optimizer.set_max_repeating_players(max_repeating_players)
+    optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'TE']))
+    optimizer.add_stack(GameStack(4, min_from_team=1))
+
+# --- generate lineups ---
 gen_btn = st.button("Generate lineups")
-
-# --- stacking options ---
-st.markdown("### Stacking Options")
-
-enable_qb_wr       = st.checkbox("QB + WR stack", value=False)
-enable_qb_te       = st.checkbox("QB + TE stack", value=False)
-enable_qb_rb_wr    = st.checkbox("QB + RB + WR Stack", value=False)
-enable_qb_rb_te    = st.checkbox("QB + RB + TE Stack", value=False)
-enable_qb_wr_wr    = st.checkbox("QB + WR + WR Stack", value=False)
-enable_qb_te_wr    = st.checkbox("QB + TE + WR Stack", value=False)
-enable_team_stack  = st.checkbox("Team stack (3 players: QB/WR/TE)", value=False)
-enable_game_stack  = st.checkbox("Game stack (2 players, min 1 from opponent)", value=False)
-no_double_rb       = st.checkbox("Restrict 2 RBs from same team", value=False)
-
-# Streamlit dropdown for minimum salary (scalable by 100, max 50000)
-min_salary_options = list(range(48000, 50001, 100))
-min_salary = st.selectbox("Select Minimum Salary for Lineups", min_salary_options, index=len(min_salary_options)-1)
-
 if gen_btn:
-    st.write("Generating lineups...")
     try:
-        # --- TEAM STACKS (same-team logic) ---
-        if enable_qb_wr:
-            optimizer.add_stack(TeamStack(2, for_positions=['QB', 'WR']))
-        if enable_qb_te:
-            optimizer.add_stack(TeamStack(2, for_positions=['QB', 'TE']))
-        if enable_qb_rb_wr:
-            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'RB', 'WR']))
-        if enable_qb_rb_te:
-            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'RB', 'TE']))
-        if enable_qb_wr_wr:
-            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'WR']))
-        if enable_qb_te_wr:
-            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'TE', 'WR']))
-
-        # --- optional TeamStack (custom 3-player stack) ---
-        if enable_team_stack:
-            optimizer.add_stack(TeamStack(3, for_positions=["QB", "WR", "TE"]))
-
-        # --- other rules ---
-        if enable_game_stack:
-            optimizer.add_stack(GameStack(2, min_from_team=1))
-        if no_double_rb:
-            optimizer.restrict_positions_for_same_team(("RB", "RB"))
-        if min_salary:
-            optimizer.set_min_salary_cap(min_salary)
-
-    except Exception as e:
-        st.error(f"Error applying stacks: {e}")
-        
         with st.spinner("Generating..."):
             lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
         st.success(f"Generated {len(lineups)} lineup(s)")
     except Exception as e:
         st.error(f"Error generating lineups: {e}")
         lineups = []
-
     if lineups:
-        # --- map positions safely ---
         position_columns = {
             "QB": ["QB"],
             "RB": ["RB", "RB1"],
@@ -280,7 +238,6 @@ if gen_btn:
             "FLEX": ["FLEX"],
             "DST": ["DST"]
         }
-
         df_rows = []
         for lineup in lineups:
             row = {}
@@ -298,17 +255,13 @@ if gen_btn:
                     if pos_counter["FLEX"] < 1:
                         row["FLEX"] = f"{player_display_name(p)}({p.id})"
                         pos_counter["FLEX"] += 1
-
             for col in ["QB","RB","RB1","WR","WR1","WR2","TE","FLEX","DST"]:
                 if col not in row: row[col] = ""
-
             row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
             row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
             df_rows.append(row)
-
         df_wide = pd.DataFrame(df_rows)
         st.markdown("### Lineups (wide)")
         st.dataframe(df_wide)
-
         csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
         st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
