@@ -237,5 +237,9 @@ if gen_btn:
         df_wide = pd.DataFrame(df_rows)
         st.markdown("### Lineups (wide)")
         st.dataframe(df_wide)
-        csv_bytes = df_wide.to_csv(index=False).encode("utf-8")
+
+        # For CSV export, rename to duplicate 'FLEX' headers for DK upload
+        export_df = df_wide.copy()
+        export_df.columns = ['CPT', 'FLEX', 'FLEX', 'FLEX', 'FLEX', 'FLEX', 'TotalSalary', 'ProjectedPoints']
+        csv_bytes = export_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download lineups CSV", csv_bytes, file_name="lineups.csv", mime="text/csv")
