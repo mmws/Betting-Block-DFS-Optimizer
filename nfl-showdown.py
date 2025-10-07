@@ -11,7 +11,7 @@ SITE_MAP = {
     "DraftKings NFL Captain Mode": (Site.DRAFTKINGS_CAPTAIN_MODE, Sport.FOOTBALL),
 }
 
-NFL_CAPTAIN_POSITION_HINTS = {"CPT", "UTIL"}
+NFL_CAPTAIN_POSITION_HINTS = {"CPT", "FLEX"}
 
 # --- helpers ---
 def normalize_colname(c: str) -> str:
@@ -172,9 +172,9 @@ for idx, row in df.iterrows():
             last_name = ""
         raw_pos = str(row[pos_col]).strip() if pos_col and not pd.isna(row[pos_col]) else None
         positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
-        # Special fix for Captain Mode: Ensure positions include 'CPT' and 'UTIL'
+        # Special fix for Captain Mode: Ensure positions include 'CPT' and 'FLEX'
         if "Captain Mode" in site_choice:
-            positions = ['CPT', 'UTIL'] if not positions else list(set(positions + ['CPT', 'UTIL']))
+            positions = ['CPT', 'FLEX'] if not positions else list(set(positions + ['CPT', 'FLEX']))
         team = str(row[team_col]).strip() if team_col and not pd.isna(row[team_col]) else None
         salary = parse_salary(row[salary_col]) if salary_col else None
         fppg = safe_float(row[fppg_col]) if fppg_col else None
@@ -213,7 +213,7 @@ if gen_btn:
         # --- map positions safely for Captain Mode ---
         position_columns = {
             "CPT": ["CPT"],
-            "UTIL": ["UTIL1", "UTIL2", "UTIL3", "UTIL4", "UTIL5"],
+            "FLEX": ["FLEX1", "FLEX2", "FLEX3", "FLEX4", "FLEX5"],
         }
         df_rows = []
         for lineup in lineups:
@@ -229,7 +229,7 @@ if gen_btn:
                         assigned = True
                         break
             # ensure all columns exist
-            for col in ["CPT", "UTIL1", "UTIL2", "UTIL3", "UTIL4", "UTIL5"]:
+            for col in ["CPT", "FLEX1", "FLEX2", "FLEX3", "FLEX4", "FLEX5"]:
                 if col not in row: row[col] = ""
             row["TotalSalary"] = sum(getattr(p,"salary",0) for p in lineup.players)
             row["ProjectedPoints"] = sum(safe_float(getattr(p,"fppg",0)) for p in lineup.players)
