@@ -228,6 +228,8 @@ no_double_rb       = st.checkbox("Restrict 2 RBs from same team", value=False)
 min_salary_options = list(range(48000, 50001, 100))
 min_salary = st.selectbox("Select Minimum Salary for Lineups", min_salary_options, index=len(min_salary_options)-1)
 
+gen_btn = st.button("Generate")  # define first
+
 if gen_btn:
     st.write("Generating lineups...")
     try:
