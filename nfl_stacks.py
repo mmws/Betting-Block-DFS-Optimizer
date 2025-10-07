@@ -210,6 +210,10 @@ num_lineups = st.slider("Number of lineups", 1, 200, 5)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
 max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
 optimizer.set_max_repeating_players(max_repeating_players)
+
+# --- Generate lineups button ---
+gen_btn = st.button("Generate lineups")
+
 # --- stacking options ---
 st.markdown("### Stacking Options")
 
