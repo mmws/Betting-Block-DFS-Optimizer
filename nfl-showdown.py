@@ -115,7 +115,9 @@ name_plus_id_col = find_column(df, ["name + id","name+id","name_plus_id","name_i
 name_col = find_column(df, ["name","full_name","player"])
 first_col = find_column(df, ["first_name","firstname","first"])
 last_col = find_column(df, ["last_name","lastname","last"])
-pos_col = find_column(df, ["position","positions","pos","roster position","rosterposition","roster_pos"])
+pos_col = find_column(df, ["roster position","rosterposition","roster_pos"])  # Prefer Roster Position for Captain Mode
+if not pos_col:
+    pos_col = find_column(df, ["position","positions","pos"])
 salary_col = find_column(df, ["salary","salary_usd"])
 team_col = find_column(df, ["team","teamabbrev","team_abbrev","teamabbr"])
 fppg_col = find_column(df, ["avgpointspergame","avgpoints","fppg","projectedpoints","proj"])
@@ -170,6 +172,9 @@ for idx, row in df.iterrows():
             last_name = ""
         raw_pos = str(row[pos_col]).strip() if pos_col and not pd.isna(row[pos_col]) else None
         positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
+        # Special fix for Captain Mode: Ensure positions include 'CPT' and 'UTIL'
+        if "Captain Mode" in site_choice:
+            positions = ['CPT', 'UTIL'] if not positions else list(set(positions + ['CPT', 'UTIL']))
         team = str(row[team_col]).strip() if team_col and not pd.isna(row[team_col]) else None
         salary = parse_salary(row[salary_col]) if salary_col else None
         fppg = safe_float(row[fppg_col]) if fppg_col else None
@@ -188,10 +193,8 @@ optimizer.player_pool.load_players(players)
 # --- lineup settings ---
 num_lineups = st.slider("Number of lineups", 1, 200, 5)
 max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-max_repeating_players = st.slider("Max repeating players", 0, 5, 2)
-min_salary = st.slider("Minimum Salary Cap", 40000, 50000, 49000)
+max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
 optimizer.set_max_repeating_players(max_repeating_players)
-optimizer.set_min_salary_cap(min_salary)
 gen_btn = st.button("Generate lineups")
 
 # --- generate lineups ---
