@@ -228,33 +228,43 @@ min_salary = st.selectbox("Select Minimum Salary for Lineups", min_salary_option
 
 
 
-gen_btn = st.button("Generate")  # define first
-
 if gen_btn:
     st.write("Generating lineups...")
-    # your lineup generation code here
+
     try:
-        # Apply stacking rules before optimization
+        # --- TEAM STACKS (QB-based, same team) ---
         if enable_qb_wr:
-            optimizer.add_stack(PositionsStack(("QB", "WR")))
-        if enable_qb_wr:
-            optimizer.add_stack(PositionsStack(("QB", "RB", "WR")))
-        if enable_qb_wr:
-            optimizer.add_stack(PositionsStack(("QB", "RB", "TE")))     
-        if enable_qb_wr:
-            optimizer.add_stack(PositionsStack(("QB", "WR", "WR")))
-        if enable_qb_wr:
-            optimizer.add_stack(PositionsStack(("QB", "RB", "TE")))
+            optimizer.add_stack(TeamStack(2, for_positions=['QB', 'WR']))
         if enable_qb_te:
-            optimizer.add_stack(PositionsStack(("QB", "TE")))
-        if enable_team_stack:
-            optimizer.add_stack(TeamStack(3, for_positions=["QB", "WR", "TE"]))
+            optimizer.add_stack(TeamStack(2, for_positions=['QB', 'TE']))
+        if enable_qb_rb_wr:
+            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'RB', 'WR']))
+        if enable_qb_rb_te:
+            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'RB', 'TE']))
+        if enable_qb_wr_wr:
+            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'WR']))
+        if enable_qb_te_wr:
+            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'TE', 'WR']))
+
+        # --- POSITIONS STACK (any team, flexible) ---
+        if enable_positions_stack:
+            pos_stack = [p.strip().upper() for p in pos_stack_input.split(",") if p.strip()]
+            optimizer.add_stack(PositionsStack(pos_stack))
+
+                # --- other rules ---
         if enable_game_stack:
             optimizer.add_stack(GameStack(2, min_from_team=1))
         if no_double_rb:
-            optimizer.restrict_positions_for_same_team(("RB", "RB"))
+            optimizer.restrict_positions_for_same_team(('RB', 'RB'))
         if min_salary:
             optimizer.set_min_salary_cap(min_salary)
+
+        # Generate lineups...
+        lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
+        st.success(f"Generated {len(lineups)} lineup(s)")
+
+    except Exception as e:
+        st.error(f"Error during lineup generation: {e}")
 
 
 
