@@ -270,12 +270,12 @@ if gen_btn:
         if no_double_rb:
             optimizer.restrict_positions_for_same_team(("RB", "RB"))
          if no_dst_vs_offense:
-            # DST cannot be on a team against any offensive players in the lineup
-            optimizer.restrict_positions_for_opposing_team(['DST'], ['QB','RB','WR','TE'])
+             # DST cannot be on a team against any offensive players in the lineup
+             optimizer.restrict_positions_for_opposing_team(['DST'], ['QB','RB','WR','TE'])
         if gen_btn and enable_runback:
             # Apply runback stack
             # optimizer.force_positions_for_opposing_team expects a tuple of positions
-            optimizer.force_positions_for_opposing_team(tuple(runback_positions[:num_runback]))
+             optimizer.force_positions_for_opposing_team(tuple(runback_positions[:num_runback]))
         if min_salary:
             optimizer.set_min_salary_cap(min_salary)
 
