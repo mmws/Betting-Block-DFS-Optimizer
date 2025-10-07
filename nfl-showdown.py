@@ -176,10 +176,10 @@ for idx, row in df.iterrows():
         if "Captain Mode" in site_choice:
             if 'CPT' in raw_pos.upper() or 'CAPTAIN' in raw_pos.upper():
                 positions = ['CPT']
-                player_id = f"{player_id}_CPT"
+                player_id = f"{player_id}"
             elif 'FLEX' in raw_pos.upper():
                 positions = ['FLEX']
-                player_id = f"{player_id}_FLEX"
+                player_id = f"{player_id}"
             else:
                 positions = [p.strip() for p in re.split(r'[\/\|,]', raw_pos)] if raw_pos else []
         else:
