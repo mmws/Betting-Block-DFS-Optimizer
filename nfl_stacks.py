@@ -264,7 +264,7 @@ if gen_btn:
         if gen_btn and enable_runback:
             # Apply runback stack
             # optimizer.force_positions_for_opposing_team expects a tuple of positions
-             optimizer.force_positions_for_opposing_team(('QB',('WR', 'TE', 'RB')))
+             optimizer.force_positions_for_opposing_team(('QB','WR'))
         if min_salary:
             optimizer.set_min_salary_cap(min_salary)
 
