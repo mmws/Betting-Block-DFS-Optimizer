@@ -211,43 +211,11 @@ max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
 max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
 optimizer.set_max_repeating_players(max_repeating_players)
 
-# --- STACKING OPTIONS ---
-st.markdown("### Team & Position Stacking Options")
-
-# TEAM STACKS (QB must be from same team)
-enable_qb_wr       = st.checkbox("Team Stack: QB + WR", value=False)
-enable_qb_te       = st.checkbox("Team Stack: QB + TE", value=False)
-enable_qb_rb_wr    = st.checkbox("Team Stack: QB + RB + WR", value=False)
-enable_qb_rb_te    = st.checkbox("Team Stack: QB + RB + TE", value=False)
-enable_qb_wr_wr    = st.checkbox("Team Stack: QB + WR + WR", value=False)
-enable_qb_te_wr    = st.checkbox("Team Stack: QB + TE + WR", value=False)
-
-# FLEXIBLE POSITION STACK (any team)
-enable_positions_stack = st.checkbox("Positions Stack (Any Teams)", value=False)
-pos_stack_input = st.text_input("Enter positions for PositionsStack (comma-separated, e.g. WR,WR,TE):", value="WR,WR")
-
-# OTHER STACK OPTIONS
-enable_game_stack  = st.checkbox("Game Stack (2 players, min 1 from opponent)", value=False)
-no_double_rb       = st.checkbox("Restrict 2 RBs from same team", value=False)
-
-# Min salary
-min_salary_options = list(range(48000, 50001, 100))
-min_salary = st.selectbox("Select Minimum Salary for Lineups", min_salary_options, index=len(min_salary_options)-1)
-
-# NUMBER OF LINEUPS / EXPOSURE
-num_lineups = st.slider("Number of lineups", 1, 200, 5)
-max_exposure = st.slider("Max exposure per player", 0.0, 1.0, 0.3)
-max_repeating_players = st.slider("Max repeating players", 0, len(players), 2)
-optimizer.set_max_repeating_players(max_repeating_players)
-
-# --- BUTTON TO GENERATE LINEUPS ---
-gen_btn = st.button("Generate lineups")
-
-# --- GENERATION LOGIC ---
 if gen_btn:
     st.write("Generating lineups...")
+
     try:
-        # --- TEAM STACKS ---
+        # --- TEAM STACKS (same-team logic) ---
         if enable_qb_wr:
             optimizer.add_stack(TeamStack(2, for_positions=['QB', 'WR']))
         if enable_qb_te:
@@ -261,12 +229,12 @@ if gen_btn:
         if enable_qb_te_wr:
             optimizer.add_stack(TeamStack(3, for_positions=['QB', 'TE', 'WR']))
 
-        # --- POSITION STACKS (any team) ---
+        # --- POSITIONS STACK (optional flexible stack) ---
         if enable_positions_stack:
             pos_stack = [p.strip().upper() for p in pos_stack_input.split(",") if p.strip()]
             optimizer.add_stack(PositionsStack(pos_stack))
 
-        # --- OTHER RULES ---
+        # --- OTHER STACK RULES ---
         if enable_game_stack:
             optimizer.add_stack(GameStack(2, min_from_team=1))
         if no_double_rb:
@@ -274,13 +242,12 @@ if gen_btn:
         if min_salary:
             optimizer.set_min_salary_cap(min_salary)
 
-        # --- GENERATE LINEUPS ---
+        # Generate lineups
         lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
         st.success(f"Generated {len(lineups)} lineup(s)")
 
     except Exception as e:
         st.error(f"Error during lineup generation: {e}")
-
         with st.spinner("Generating..."):
             lineups = list(optimizer.optimize(n=num_lineups, max_exposure=max_exposure))
         st.success(f"Generated {len(lineups)} lineup(s)")
