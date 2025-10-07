@@ -240,11 +240,11 @@ if gen_btn:
         if enable_qb_rb_wr:
             optimizer.add_stack(PositionsStack(['QB', 'RB', 'WR']))
         if enable_qb_rb_te:
-            optimizer.add_stack(PositionsStack(['QB', ('RB', 'TE')]))    
+            optimizer.add_stack(PositionsStack(['QB', 'RB', 'TE']))    
         if enable_qb_wr_wr:
-            optimizer.add_stack(PositionsStack(['QB', ('WR', 'WR')]))  
+            optimizer.add_stack(PositionsStack(['QB', 'WR', 'WR']))  
         if enable_qb_te_wr:
-            optimizer.add_stack(PositionsStack(['QB', ('TE', 'WR')])) 
+            optimizer.add_stack(PositionsStack(['QB', 'TE', 'WR'])) 
         if enable_qb_te:
             optimizer.add_stack(PositionsStack(['QB', 'TE']))
         if enable_team_stack:
