@@ -223,6 +223,19 @@ enable_qb_te_wr = st.checkbox("QB + TE + WR Stack", value=False)
 enable_team_stack = st.checkbox("Team stack (3 players: QB/WR/TE)", value=True)
 enable_game_stack = st.checkbox("Game stack (2 players, min 1 from opponent)", value=False)
 no_double_rb = st.checkbox("Restrict 2 RBs from same team", value=True)
+no_dst_vs_offense = st.checkbox("No DST vs offensive players", value=False)
+enable_runback = st.checkbox("Enable Runback", value=False)
+
+if enable_runback:
+    runback_positions = st.multiselect(
+        "Select positions for runback",
+        options=['QB', 'RB', 'WR', 'TE', 'FLEX', 'DST'],
+        default=['QB', 'WR']
+    )
+    num_runback = st.slider(
+        "Number of runback players",
+        2, 5, 2  # min 2, max 5, default 2
+    )
 # Streamlit dropdown for minimum salary (scalable by 100, max 50000)
 min_salary_options = list(range(48000, 50001, 100))  # starts at 40000, ends at 50000
 min_salary = st.selectbox("Select Minimum Salary for Lineups", min_salary_options, index=len(min_salary_options)-1)
@@ -256,6 +269,13 @@ if gen_btn:
             optimizer.add_stack(GameStack(2, min_from_team=1))
         if no_double_rb:
             optimizer.restrict_positions_for_same_team(("RB", "RB"))
+         if no_dst_vs_offense:
+            # DST cannot be on a team against any offensive players in the lineup
+            optimizer.restrict_positions_for_opposing_team(['DST'], ['QB','RB','WR','TE'])
+        if gen_btn and enable_runback:
+            # Apply runback stack
+            # optimizer.force_positions_for_opposing_team expects a tuple of positions
+            optimizer.force_positions_for_opposing_team(tuple(runback_positions[:num_runback]))
         if min_salary:
             optimizer.set_min_salary_cap(min_salary)
 
