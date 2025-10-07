@@ -238,7 +238,7 @@ if gen_btn:
         if enable_qb_wr:
             optimizer.add_stack(PositionsStack(['QB', 'WR']))
         if enable_qb_rb_wr:
-            optimizer.add_stack(PositionsStack(['QB', ('RB', 'WR')]))
+            optimizer.add_stack(PositionsStack(['QB', 'RB', 'WR')]))
         if enable_qb_rb_te:
             optimizer.add_stack(PositionsStack(['QB', ('RB', 'TE')]))    
         if enable_qb_wr_wr:
