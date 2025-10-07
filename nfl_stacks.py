@@ -248,7 +248,7 @@ if gen_btn:
         if enable_qb_te:
             optimizer.add_stack(PositionsStack(['QB', 'TE']))
         if enable_team_stack:
-            optimizer.add_stack(TeamStack(3, for_positions=["QB", "WR", "TE"]))
+            optimizer.add_stack(TeamStack(3, for_positions=['QB', 'WR', 'TE']))
         if enable_game_stack:
             optimizer.add_stack(GameStack(2, min_from_team=1))
         if no_double_rb:
