@@ -214,6 +214,7 @@ optimizer.set_max_repeating_players(max_repeating_players)
 # --- stacking options ---
 st.markdown("### Stacking Options")
 enable_qb_wr = st.checkbox("QB + WR stack", value=True)
+enable_qb_rb = st.checkbox("QB + RB stack", value=False)
 enable_qb_te = st.checkbox("QB + TE stack", value=False)
 enable_qb_rb_wr = st.checkbox("QB + RB + WR Stack", value=False)
 enable_qb_rb_te = st.checkbox("QB + RB + TE Stack", value=False)
@@ -237,6 +238,8 @@ if gen_btn:
         # Apply stacking rules before optimization
         if enable_qb_wr:
             optimizer.add_stack(PositionsStack(['QB', 'WR']))
+        if enable_qb_rb:
+            optimizer.add_stack(PositionsStack(['QB', 'RB']))
         if enable_qb_rb_wr:
             optimizer.add_stack(PositionsStack(['QB', 'RB', 'WR']))
         if enable_qb_rb_te:
